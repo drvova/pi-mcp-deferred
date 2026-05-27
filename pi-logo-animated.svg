@@ -13,21 +13,18 @@
       <stop offset="100%" stop-color="#5A7896" stop-opacity="0"/>
     </radialGradient>
 
-    <linearGradient id="blueGrad" x1="0" y1="0" x2="0" y2="26">
-      <stop offset="0%" stop-color="#70849E"/>
-      <stop offset="52%" stop-color="#53677F"/>
+    <linearGradient id="blueGrad" x1="0" y1="0" x2="0" y2="20">
+      <stop offset="0%" stop-color="#53677F"/>
       <stop offset="100%" stop-color="#3C4D63"/>
     </linearGradient>
 
-    <linearGradient id="redGrad" x1="0" y1="0" x2="0" y2="26">
-      <stop offset="0%" stop-color="#AD6046"/>
-      <stop offset="52%" stop-color="#8D422D"/>
+    <linearGradient id="redGrad" x1="0" y1="0" x2="0" y2="20">
+      <stop offset="0%" stop-color="#8D422D"/>
       <stop offset="100%" stop-color="#682F22"/>
     </linearGradient>
 
-    <linearGradient id="oliveGrad" x1="0" y1="0" x2="0" y2="26">
-      <stop offset="0%" stop-color="#BFC08F"/>
-      <stop offset="52%" stop-color="#A3A36B"/>
+    <linearGradient id="oliveGrad" x1="0" y1="0" x2="0" y2="20">
+      <stop offset="0%" stop-color="#A3A36B"/>
       <stop offset="100%" stop-color="#7B7C50"/>
     </linearGradient>
 
@@ -55,43 +52,43 @@
       @keyframes dropIn {
         from {
           opacity: 0;
-          y: -42px;
+          transform: translateY(-42px);
         }
         72% {
           opacity: 1;
         }
         to {
           opacity: 1;
-          y: 0px;
+          transform: translateY(0);
         }
       }
     </style>
 
     <g id="blueBlock">
-      <rect width="26" height="26" fill="url(#blueGrad)" stroke="#03080E" stroke-opacity="0.62"/>
-      <rect x="2" y="2" width="22" height="3" fill="#FFFFFF" fill-opacity="0.13"/>
-      <rect x="2" y="2" width="3" height="22" fill="#FFFFFF" fill-opacity="0.10"/>
-      <rect x="21" y="4" width="3" height="20" fill="#000000" fill-opacity="0.17"/>
-      <rect x="4" y="21" width="20" height="3" fill="#000000" fill-opacity="0.17"/>
-      <line x1="4" y1="13" x2="22" y2="13" stroke="#FFFFFF" stroke-opacity="0.08"/>
+      <rect width="28" height="28" fill="#4A5D73"/>
+      <polygon points="0,0 28,0 24,4 4,4" fill="#FFFFFF" fill-opacity="0.3"/>
+      <polygon points="0,0 4,4 4,24 0,28" fill="#FFFFFF" fill-opacity="0.15"/>
+      <polygon points="0,28 4,24 24,24 28,28" fill="#000000" fill-opacity="0.4"/>
+      <polygon points="28,0 24,4 24,24 28,28" fill="#000000" fill-opacity="0.2"/>
+      <rect x="4" y="4" width="20" height="20" fill="url(#blueGrad)"/>
     </g>
 
     <g id="redBlock">
-      <rect width="26" height="26" fill="url(#redGrad)" stroke="#03080E" stroke-opacity="0.62"/>
-      <rect x="2" y="2" width="22" height="3" fill="#FFFFFF" fill-opacity="0.13"/>
-      <rect x="2" y="2" width="3" height="22" fill="#FFFFFF" fill-opacity="0.10"/>
-      <rect x="21" y="4" width="3" height="20" fill="#000000" fill-opacity="0.17"/>
-      <rect x="4" y="21" width="20" height="3" fill="#000000" fill-opacity="0.17"/>
-      <line x1="4" y1="13" x2="22" y2="13" stroke="#FFFFFF" stroke-opacity="0.08"/>
+      <rect width="28" height="28" fill="#7A3623"/>
+      <polygon points="0,0 28,0 24,4 4,4" fill="#FFFFFF" fill-opacity="0.3"/>
+      <polygon points="0,0 4,4 4,24 0,28" fill="#FFFFFF" fill-opacity="0.15"/>
+      <polygon points="0,28 4,24 24,24 28,28" fill="#000000" fill-opacity="0.4"/>
+      <polygon points="28,0 24,4 24,24 28,28" fill="#000000" fill-opacity="0.2"/>
+      <rect x="4" y="4" width="20" height="20" fill="url(#redGrad)"/>
     </g>
 
     <g id="oliveBlock">
-      <rect width="26" height="26" fill="url(#oliveGrad)" stroke="#03080E" stroke-opacity="0.62"/>
-      <rect x="2" y="2" width="22" height="3" fill="#FFFFFF" fill-opacity="0.13"/>
-      <rect x="2" y="2" width="3" height="22" fill="#FFFFFF" fill-opacity="0.10"/>
-      <rect x="21" y="4" width="3" height="20" fill="#000000" fill-opacity="0.17"/>
-      <rect x="4" y="21" width="20" height="3" fill="#000000" fill-opacity="0.17"/>
-      <line x1="4" y1="13" x2="22" y2="13" stroke="#FFFFFF" stroke-opacity="0.08"/>
+      <rect width="28" height="28" fill="#8F8F5D"/>
+      <polygon points="0,0 28,0 24,4 4,4" fill="#FFFFFF" fill-opacity="0.3"/>
+      <polygon points="0,0 4,4 4,24 0,28" fill="#FFFFFF" fill-opacity="0.15"/>
+      <polygon points="0,28 4,24 24,24 28,28" fill="#000000" fill-opacity="0.4"/>
+      <polygon points="28,0 24,4 24,24 28,28" fill="#000000" fill-opacity="0.2"/>
+      <rect x="4" y="4" width="20" height="20" fill="url(#oliveGrad)"/>
     </g>
   </defs>
 
