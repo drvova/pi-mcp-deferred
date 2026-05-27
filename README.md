@@ -18,7 +18,7 @@ This causes:
 
 ## Solution
 
-Three-phase deferred context engine (inspired by [Factory's Deferred Context Engine](https://factory.ai/blog/the-deferred-context-engine)):
+Three-phase deferred context engine (inspired by [Factory's Deferred Context Engine](https://factory.ai/news/deferred-context-engine)):
 
 ### Phase 1: Discover (startup)
 
@@ -172,7 +172,7 @@ Actual savings depend on tool schema complexity. Tools with many nested properti
 ## Credits
 
 - Original extension: [@spences10/pi-mcp](https://github.com/spences10/my-pi/tree/main/packages/pi-mcp) by Scott Spence
-- Deferred context engine concept: [Factory](https://factory.ai/blog/the-deferred-context-engine)
+- Deferred context engine concept: [Factory](https://factory.ai/news/deferred-context-engine)
 - Compact schema compression: [mcp-context-proxy](https://github.com/kira-autonoma/mcp-context-proxy)
 
 ## License
