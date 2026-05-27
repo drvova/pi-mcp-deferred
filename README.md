@@ -4,7 +4,7 @@
   <img src="pi-logo-animated.svg" width="360" height="340" alt="Pi MCP Deferred — animated Tetris-style logo">
 </p>
 
-A deferred context engine for [Pi](https://github.com/earendil-works/pi-coding-agent) MCP integration. Fork of [@spences10/pi-mcp](https://github.com/spences10/my-pi/tree/main/packages/pi-mcp) v0.0.37.
+A deferred context engine for [Pi](https://github.com/earendil-works/pi) MCP integration. Fork of [@spences10/pi-mcp](https://github.com/spences10/my-pi/tree/main/packages/pi-mcp) v0.0.37.
 
 ## Problem
 
