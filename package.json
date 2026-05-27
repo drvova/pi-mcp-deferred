@@ -14,8 +14,7 @@
   "author": "Fork of @spences10/pi-mcp by Scott Spence",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/spences10/my-pi.git",
-    "directory": "packages/pi-mcp"
+    "url": "git+https://github.com/drvova/pi-mcp-deferred.git"
   },
   "files": [
     "dist",
