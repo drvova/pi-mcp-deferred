@@ -1,18 +1,5 @@
 <svg width="360" height="340" viewBox="0 0 360 340" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Animated Pi-style Tetris logo">
   <defs>
-    <pattern id="grid" width="30" height="30" patternUnits="userSpaceOnUse">
-      <path d="M30 0H0V30" fill="none" stroke="#8094AA" stroke-opacity="0.085" stroke-width="1"/>
-    </pattern>
-
-    <pattern id="bigGrid" width="150" height="150" patternUnits="userSpaceOnUse">
-      <path d="M150 0H0V150" fill="none" stroke="#8094AA" stroke-opacity="0.13" stroke-width="1"/>
-    </pattern>
-
-    <radialGradient id="glow" cx="50%" cy="50%" r="58%">
-      <stop offset="0%" stop-color="#5A7896" stop-opacity="0.05"/>
-      <stop offset="100%" stop-color="#5A7896" stop-opacity="0"/>
-    </radialGradient>
-
     <linearGradient id="blueGrad" x1="0" y1="0" x2="0" y2="20">
       <stop offset="0%" stop-color="#53677F"/>
       <stop offset="100%" stop-color="#3C4D63"/>
@@ -91,11 +78,6 @@
       <rect x="4" y="4" width="20" height="20" fill="url(#oliveGrad)"/>
     </g>
   </defs>
-
-  <rect width="360" height="340" fill="#111B26"/>
-  <rect width="360" height="340" fill="url(#grid)"/>
-  <rect width="360" height="340" fill="url(#bigGrid)" opacity="0.45"/>
-  <rect width="360" height="340" fill="url(#glow)"/>
 
   <g transform="translate(132 133)" filter="url(#shadow)">
     <g transform="translate(0 0)"><g class="drop d1"><use href="#blueBlock"/></g></g>
