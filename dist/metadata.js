@@ -2,6 +2,11 @@ const DEFAULT_INPUT_SCHEMA = {
     type: 'object',
     properties: {},
 };
+const STUB_INPUT_SCHEMA = {
+    type: 'object',
+    properties: {},
+    additionalProperties: true,
+};
 const UNTRUSTED_SCHEMA_PROSE_KEYS = new Set([
     '$comment',
     'default',
@@ -59,7 +64,7 @@ export function create_stub_tool_metadata(server_name, tool_name, description) {
     return {
         label: `${server_name}: ${tool_name}`,
         description: `${first_sentence(description)} [Schema deferred — call to load full schema]`,
-        parameters: { ...DEFAULT_INPUT_SCHEMA },
+        parameters: { ...STUB_INPUT_SCHEMA },
     };
 }
 function sanitize_schema_value(value) {
