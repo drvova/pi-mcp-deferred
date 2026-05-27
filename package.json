@@ -1,0 +1,71 @@
+{
+  "name": "pi-mcp-deferred",
+  "version": "1.0.0",
+  "description": "Deferred context engine for Pi MCP — lazy-loads tool schemas on first use to save context tokens",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "pi",
+    "pi-package",
+    "deferred-context",
+    "lazy-loading"
+  ],
+  "license": "MIT",
+  "author": "Fork of @spences10/pi-mcp by Scott Spence",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spences10/my-pi.git",
+    "directory": "packages/pi-mcp"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@spences10/pi-project-trust": "0.0.12",
+    "@spences10/pi-child-env": "0.1.8",
+    "@spences10/pi-context": "0.0.24",
+    "@spences10/pi-settings": "0.0.0",
+    "@spences10/pi-tui-modal": "0.0.20"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.75.4",
+    "@types/node": "^25.8.0",
+    "typescript": "^6.0.3",
+    "vitest": "4.1.6"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "engines": {
+    "node": ">=24.15.0"
+  },
+  "pi": {
+    "extensions": [
+      "./dist/index.js"
+    ],
+    "image": "https://raw.githubusercontent.com/spences10/my-pi/main/assets/pi-package-preview.png"
+  },
+  "scripts": {
+    "build": "pnpm --filter \"$npm_package_name^...\" run build:self && pnpm run build:self",
+    "build:self": "vp exec tsc -p tsconfig.build.json",
+    "check": "pnpm --filter \"$npm_package_name^...\" run build:self && pnpm run check:self",
+    "check:self": "vp exec tsc --noEmit -p tsconfig.json",
+    "test": "pnpm --filter \"$npm_package_name^...\" run build:self && pnpm run test:self",
+    "test:self": "vp exec vitest run",
+    "coverage:self": "vp exec vitest run --coverage",
+    "coverage": "pnpm --filter \"$npm_package_name^...\" run build:self && pnpm run coverage:self"
+  }
+}

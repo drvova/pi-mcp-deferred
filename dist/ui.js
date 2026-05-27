@@ -1,0 +1,121 @@
+import { show_picker_modal, show_settings_modal, show_text_modal, } from '@spences10/pi-tui-modal';
+import { DISABLED, ENABLED, format_server_status, format_server_target, } from './server-state.js';
+export function format_mcp_server_list(servers) {
+    if (servers.size === 0)
+        return 'No MCP servers configured';
+    const lines = [];
+    for (const [sname, state] of servers.entries()) {
+        const trust_note = state.config.metadata_trusted === false
+            ? ' — untrusted metadata suppressed'
+            : '';
+        lines.push(`${sname} (${format_server_status(state)}) — ${state.tool_names.length} tools${trust_note}${state.error ? ` — ${state.error}` : ''}`);
+    }
+    return lines.join('\n');
+}
+export async function show_mcp_home_modal(ctx, servers) {
+    return await show_picker_modal(ctx, {
+        title: 'MCP',
+        subtitle: `${servers.size} configured server(s)`,
+        items: [
+            {
+                value: 'manage',
+                label: 'Manage servers',
+                description: 'Enable, disable, inspect status and tools',
+            },
+            {
+                value: 'list',
+                label: 'List servers',
+                description: 'Read-only status summary',
+            },
+            {
+                value: 'backup',
+                label: 'Create backup',
+                description: 'Snapshot global and project MCP config',
+            },
+            {
+                value: 'restore',
+                label: 'Restore backup',
+                description: 'Pick a saved MCP config backup',
+            },
+            {
+                value: 'profile load',
+                label: 'Load profile',
+                description: 'Apply a saved MCP server profile',
+            },
+            {
+                value: 'profile save',
+                label: 'Save profile',
+                description: 'Save current config as a named profile',
+            },
+            {
+                value: 'profile list',
+                label: 'List profiles',
+                description: 'Show saved MCP profiles',
+            },
+        ],
+        footer: 'enter opens • esc close/back',
+    });
+}
+export async function show_mcp_text_modal(ctx, title, text) {
+    await show_text_modal(ctx, {
+        title,
+        text,
+        max_visible_lines: 20,
+        overlay_options: { width: '90%', minWidth: 72 },
+    });
+}
+export async function show_mcp_server_modal(ctx, servers, set_server_enabled) {
+    if (!ctx.hasUI)
+        return false;
+    if (servers.size === 0) {
+        ctx.ui.notify('No MCP servers configured');
+        return true;
+    }
+    const items = Array.from(servers.values()).map((state) => ({
+        id: state.config.name,
+        label: state.config.name,
+        currentValue: state.enabled ? ENABLED : DISABLED,
+        values: [ENABLED, DISABLED],
+        description: format_server_target(state.config),
+    }));
+    await show_settings_modal(ctx, {
+        title: 'MCP servers',
+        subtitle: () => {
+            const states = Array.from(servers.values());
+            const enabled = states.filter((state) => state.enabled).length;
+            const connected = states.filter((state) => state.enabled && state.status === 'connected').length;
+            const failed = states.filter((state) => state.enabled && state.status === 'failed').length;
+            return `${enabled}/${states.length} enabled • ${connected} connected${failed ? ` • ${failed} failed` : ''}`;
+        },
+        items,
+        enable_search: true,
+        detail: (item) => {
+            const server = servers.get(item.id);
+            if (!server)
+                return undefined;
+            return `${format_server_status(server)} • ${server.tool_names.length} tools • ${server.config.transport}`;
+        },
+        metadata: (item) => {
+            if (!item)
+                return undefined;
+            const server = servers.get(item.id);
+            if (!server)
+                return undefined;
+            return [
+                `Target: ${format_server_target(server.config)}`,
+                `Status: ${format_server_status(server)}`,
+                `Tools: ${server.tool_names.length}`,
+                server.config.metadata_trusted === false
+                    ? 'Metadata: untrusted metadata suppressed'
+                    : 'Metadata: trusted',
+                ...(server.error ? [`Error: ${server.error}`] : []),
+            ];
+        },
+        footer: 'enter/space toggles • search filters • changes save to mcp.json • esc close',
+        on_change: (id, new_value) => {
+            set_server_enabled(id, new_value === ENABLED, ctx);
+        },
+    });
+    return true;
+}
+//# sourceMappingURL=ui.js.map
