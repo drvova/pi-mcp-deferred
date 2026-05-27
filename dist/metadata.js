@@ -56,14 +56,35 @@ function first_sentence(text) {
     return match ? match[0].trim() : text.slice(0, 120);
 }
 /**
- * Create a stub tool registration — compact description + empty params.
+ * Build a compact param hint string from an MCP tool's inputSchema.
+ * E.g. "Params: repo_name (string, required), query (string, required), language (string)"
+ * Returns empty string if no properties found.
+ */
+function param_hints(schema) {
+    if (!schema || typeof schema !== 'object') return '';
+    const props = schema.properties;
+    if (!props || typeof props !== 'object') return '';
+    const required = new Set(Array.isArray(schema.required) ? schema.required : []);
+    const entries = Object.entries(props);
+    if (entries.length === 0) return '';
+    const parts = entries.map(([name, def]) => {
+        const type = def && typeof def === 'object' && def.type ? def.type : 'any';
+        const req = required.has(name) ? ', required' : '';
+        return `${name} (${type}${req})`;
+    });
+    return `Params: ${parts.join(', ')}. `;
+}
+/**
+ * Create a stub tool registration — compact description with param hints + empty schema.
  * The stub defers full schema loading until the tool is actually called,
  * saving context tokens when many MCP tools are configured but few used.
+ * Param hints in the description let the LLM pass valid params on first call.
  */
-export function create_stub_tool_metadata(server_name, tool_name, description) {
+export function create_stub_tool_metadata(server_name, tool_name, description, input_schema) {
+    const hints = param_hints(input_schema);
     return {
         label: `${server_name}: ${tool_name}`,
-        description: `${first_sentence(description)} [Schema deferred — call to load full schema]`,
+        description: `${first_sentence(description)} ${hints}[Deferred — full schema loads on first call]`,
         parameters: { ...STUB_INPUT_SCHEMA },
     };
 }

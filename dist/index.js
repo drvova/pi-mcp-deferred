@@ -103,7 +103,7 @@ export default async function mcp(pi) {
                     registered_tool_names.add(tool_name);
                     if (deferred) {
                         // DEFERRED: register compact stub
-                        const stub = create_stub_tool_metadata(state.config.name, mcp_tool.name, mcp_tool.description);
+                        const stub = create_stub_tool_metadata(state.config.name, mcp_tool.name, mcp_tool.description, mcp_tool.inputSchema);
                         const _original_tool_name = mcp_tool.name;
                         pi.registerTool(defineTool({
                             name: tool_name,
@@ -111,14 +111,12 @@ export default async function mcp(pi) {
                             description: stub.description,
                             parameters: stub.parameters,
                             execute: async (_id, params) => {
-                                // Auto-promote this server on first call, then instruct retry
-                                if (!is_server_promoted(state)) {
+                                // Auto-promote this server on first call
+                                const was_stub = !is_server_promoted(state);
+                                if (was_stub) {
                                     await promote_server_tools(state);
-                                    return {
-                                        content: [{ type: 'text', text: `Full schema for "${_original_tool_name}" loaded from server "${state.config.name}". All tools from this server now have their complete parameter schemas available. Please call this tool again with the correct parameters.` }],
-                                    };
                                 }
-                                // Already promoted — execute normally with full client
+                                // Execute with full client (works whether just promoted or already promoted)
                                 clear_mcp_idle_timer(state);
                                 state.active_call_count += 1;
                                 try {
@@ -130,10 +128,21 @@ export default async function mcp(pi) {
                                         tool_name,
                                         input_summary: summarize_mcp_tool_params(params),
                                     });
+                                    const prefix = was_stub
+                                        ? `[Promoted "${state.config.name}" on first call] `
+                                        : '';
                                     return {
-                                        content: [{ type: 'text', text: formatted.text }],
+                                        content: [{ type: 'text', text: prefix + formatted.text }],
                                         details: formatted.details,
                                     };
+                                }
+                                catch (err) {
+                                    if (was_stub) {
+                                        return {
+                                            content: [{ type: 'text', text: `Tool "${_original_tool_name}" was auto-promoted from server "${state.config.name}" but execution failed: ${err.message}. The full schema is now loaded — please retry with the correct parameters.` }],
+                                        };
+                                    }
+                                    throw err;
                                 }
                                 finally {
                                     state.active_call_count -= 1;
