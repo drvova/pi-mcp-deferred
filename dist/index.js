@@ -104,24 +104,28 @@ export default async function mcp(pi) {
                     if (deferred) {
                         // DEFERRED: register compact stub
                         const stub = create_stub_tool_metadata(state.config.name, mcp_tool.name, mcp_tool.description);
+                        const _original_tool_name = mcp_tool.name;
                         pi.registerTool(defineTool({
                             name: tool_name,
                             label: stub.label,
                             description: stub.description,
                             parameters: stub.parameters,
                             execute: async (_id, params) => {
-                                // Auto-promote this server on first call
+                                // Auto-promote this server on first call, then instruct retry
                                 if (!is_server_promoted(state)) {
                                     await promote_server_tools(state);
+                                    return {
+                                        content: [{ type: 'text', text: `Full schema for "${_original_tool_name}" loaded from server "${state.config.name}". All tools from this server now have their complete parameter schemas available. Please call this tool again with the correct parameters.` }],
+                                    };
                                 }
-                                // Execute with full client
+                                // Already promoted — execute normally with full client
                                 clear_mcp_idle_timer(state);
                                 state.active_call_count += 1;
                                 try {
                                     if (!state.client || state.status !== 'connected') {
                                         await connect_server(state);
                                     }
-                                    const result = (await state.client.callTool(mcp_tool.name, params));
+                                    const result = (await state.client.callTool(_original_tool_name, params));
                                     const formatted = format_mcp_tool_result(result, {
                                         tool_name,
                                         input_summary: summarize_mcp_tool_params(params),
