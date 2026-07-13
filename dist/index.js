@@ -13,9 +13,6 @@ export function should_wait_for_mcp_connections(event) {
     const selected_tools = event.systemPromptOptions?.selectedTools;
     return (selected_tools?.some((tool) => tool.startsWith('mcp__')) ?? false);
 }
-function should_eager_connect_mcp() {
-    return process.env.MY_PI_MCP_EAGER_CONNECT === '1';
-}
 function should_defer_mcp(server_config) {
     // Per-server override takes priority
     if (server_config.deferred !== undefined) return server_config.deferred;
@@ -350,15 +347,17 @@ export default async function mcp(pi) {
             server.error = undefined;
         }
         update_mcp_status(ctx, servers);
-        if (should_eager_connect_mcp())
-            void connect_server(server, ctx);
+        // Discover at startup: connect to register stubs. Context is deferred via
+        // compact schemas (Phase 1), not by deferring the connection itself.
+        void connect_server(server, ctx);
         return server;
     };
     pi.on('session_start', async (_event, ctx) => {
         await ensure_servers(ctx.cwd, ctx);
         update_mcp_status(ctx, servers);
-        if (should_eager_connect_mcp())
-            void connect_all_servers({ ctx });
+        // Phase 1 Discover (startup): connect in the background to register compact
+        // stubs. Non-blocking, so launch stays fast; full schemas still defer to use.
+        void connect_all_servers({ ctx });
         // Register mcp__expand tool for explicit schema promotion
         pi.registerTool(defineTool({
             name: 'mcp__expand',
@@ -607,8 +606,7 @@ export default async function mcp(pi) {
             }
         },
     });
-    if (should_eager_connect_mcp() &&
-        process.env.MY_PI_RUNTIME_MODE &&
+    if (process.env.MY_PI_RUNTIME_MODE &&
         process.env.MY_PI_RUNTIME_MODE !== 'interactive') {
         await ensure_servers(process.cwd());
         await connect_all_servers({ include_failed: true });

@@ -83,14 +83,6 @@ export MY_PI_MCP_DEFERRED=0
 }
 ```
 
-### Eager connect (original behavior)
-
-To connect all MCP servers immediately at startup (original pi-mcp behavior):
-
-```bash
-export MY_PI_MCP_EAGER_CONNECT=1
-```
-
 ### Idle timeout
 
 Disconnect idle MCP servers after N milliseconds (default: 1800000 / 30 minutes):
