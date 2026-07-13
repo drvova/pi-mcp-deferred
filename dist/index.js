@@ -33,6 +33,15 @@ export default async function mcp(pi) {
     let initialize_promise;
     let servers = new Map();
     const registered_tool_names = new Set();
+    // Tell Pi the tool set changed so re-registered schemas take effect immediately
+    // (promote/expand/re-defer), not just at the next implicit rebuild.
+    const refresh_tools = () => pi.refreshTools?.();
+    // Proactive re-defer threshold: reclaim schema tokens once context usage crosses
+    // this fraction, before compaction is forced. MY_PI_MCP_REDEFER_PCT overrides.
+    const redefer_pct = () => {
+        const v = Number(process.env.MY_PI_MCP_REDEFER_PCT);
+        return Number.isFinite(v) && v > 0 && v <= 1 ? v : 0.75;
+    };
     const ensure_servers = async (cwd, ctx) => {
         if (initialized_cwd !== null)
             return;
@@ -240,6 +249,8 @@ export default async function mcp(pi) {
                         ...new Set([...active, ...state.tool_names]),
                     ]);
                 }
+                if (!state.catalogued)
+                    refresh_tools();
             }
             catch (error) {
                 state.status = 'failed';
@@ -305,6 +316,7 @@ export default async function mcp(pi) {
                 },
             }));
         }
+        refresh_tools();
     };
     // Load a catalogued server: register its tools (stub tier) from cached metadata,
     // move it out of the catalog, and activate the tools. No reconnect required.
@@ -319,6 +331,7 @@ export default async function mcp(pi) {
             const active = pi.getActiveTools();
             pi.setActiveTools([...new Set([...active, ...state.tool_names])]);
         }
+        refresh_tools();
         if (ctx)
             update_mcp_status(ctx, servers);
         return state.tool_names.length;
@@ -412,6 +425,7 @@ export default async function mcp(pi) {
                 };
             },
         }));
+        refresh_tools();
     };
     // Phase 4: re-defer promoted servers to compact stubs when the context window
     // is under pressure. Reclaims ~69% of a server's schema tokens; tools stay
@@ -432,8 +446,11 @@ export default async function mcp(pi) {
             register_server_tools(state, state.discovered_tools);
             reclaimed += 1;
         }
-        if (reclaimed && ctx)
-            update_mcp_status(ctx, servers);
+        if (reclaimed) {
+            refresh_tools();
+            if (ctx)
+                update_mcp_status(ctx, servers);
+        }
         return reclaimed;
     };
     const oauth_login = async (name, ctx) => {
@@ -516,6 +533,14 @@ export default async function mcp(pi) {
         // Refresh the catalog listing for servers that connected since last turn.
         if (catalog_signature() !== expand_sig)
             register_expand_tool(ctx);
+        // Proactive re-defer: reclaim schema tokens once context usage is high,
+        // before it forces a destructive compaction. Backstopped by Phase 4.
+        const usage = ctx.getContextUsage?.();
+        if (usage && usage.percent != null) {
+            const p = usage.percent > 1 ? usage.percent / 100 : usage.percent;
+            if (p >= redefer_pct())
+                redefer_idle_servers(ctx);
+        }
         if (!should_wait_for_mcp_connections(event)) {
             await connect_all_servers({ ctx });
             return event;
