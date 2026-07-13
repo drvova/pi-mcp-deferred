@@ -363,6 +363,12 @@ export default async function mcp(pi) {
             name: 'mcp__expand',
             label: 'mcp: expand server schemas',
             description: build_expand_description(),
+            promptSnippet: 'mcp__expand — load a catalogued MCP server\'s tools before calling them',
+            promptGuidelines: [
+                'MCP servers are catalogued to save context: their tools are listed in the mcp__expand description but are not callable until loaded.',
+                'Before calling a tool from a catalogued server, call mcp__expand({ server }) to load it (or mcp__expand({ server: "all" })).',
+                'The first call to a freshly loaded tool auto-loads its full schema; if a call is rejected on schema, retry once with corrected arguments.',
+            ],
             parameters: {
                 type: 'object',
                 properties: {
