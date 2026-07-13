@@ -7,7 +7,7 @@ import { handle_mcp_profile } from './profile-actions.js';
 import { get_project_mcp_config_load_decision } from './project-config-loader.js';
 import { clear_token, ensure_oauth_config, is_oauth_enabled, run_interactive_login, } from './oauth.js';
 import { format_mcp_tool_result } from './result.js';
-import { clear_mcp_idle_timer, create_server_states, get_mcp_idle_timeout_ms, is_server_promoted, mark_server_promoted, remove_server_tools_from_active, report_mcp_failure, set_connect_feedback, summarize_mcp_tool_params, update_mcp_status, } from './server-state.js';
+import { clear_mcp_idle_timer, create_server_states, get_mcp_idle_timeout_ms, is_server_promoted, mark_server_promoted, unmark_server_promoted, remove_server_tools_from_active, report_mcp_failure, set_connect_feedback, summarize_mcp_tool_params, update_mcp_status, } from './server-state.js';
 import { format_mcp_server_list, show_mcp_home_modal, show_mcp_server_modal, show_mcp_text_modal, show_oauth_server_picker, } from './ui.js';
 export function should_wait_for_mcp_connections(event) {
     const selected_tools = event.systemPromptOptions?.selectedTools;
@@ -413,6 +413,29 @@ export default async function mcp(pi) {
             },
         }));
     };
+    // Phase 4: re-defer promoted servers to compact stubs when the context window
+    // is under pressure. Reclaims ~69% of a server's schema tokens; tools stay
+    // visible and auto-promote again on next call. Skips in-flight calls and
+    // servers pinned to full schemas (deferred:false).
+    const redefer_idle_servers = (ctx) => {
+        let reclaimed = 0;
+        for (const state of servers.values()) {
+            if (!is_server_promoted(state) ||
+                state.active_call_count > 0 ||
+                !state.discovered_tools ||
+                !should_defer_mcp(state.config))
+                continue;
+            // Drop the registration guard so stubs overwrite the full schemas.
+            for (const name of state.tool_names)
+                registered_tool_names.delete(name);
+            unmark_server_promoted(state);
+            register_server_tools(state, state.discovered_tools);
+            reclaimed += 1;
+        }
+        if (reclaimed && ctx)
+            update_mcp_status(ctx, servers);
+        return reclaimed;
+    };
     const oauth_login = async (name, ctx) => {
         const server = servers.get(name);
         if (!server) {
@@ -693,6 +716,14 @@ export default async function mcp(pi) {
         await ensure_servers(process.cwd());
         await connect_all_servers({ include_failed: true });
     }
+    pi.on('session_before_compact', async (event, ctx) => {
+        // Only reclaim on automatic compaction (threshold/overflow), not manual /compact.
+        if (event.reason === 'manual')
+            return;
+        const n = redefer_idle_servers(ctx);
+        if (n && ctx?.hasUI)
+            ctx.ui.notify(`Re-deferred ${n} idle MCP server(s) to reclaim context`);
+    });
     pi.on('session_shutdown', async (_event, ctx) => {
         await Promise.allSettled(Array.from(servers.values()).map(async (server) => {
             await disconnect_server(server, ctx);

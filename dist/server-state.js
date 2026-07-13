@@ -19,6 +19,9 @@ export function is_server_promoted(state) {
 export function mark_server_promoted(state) {
     state.promoted = true;
 }
+export function unmark_server_promoted(state) {
+    state.promoted = false;
+}
 export function remove_server_tools_from_active(pi, tool_names) {
     const tool_set = new Set(tool_names);
     pi.setActiveTools(pi.getActiveTools().filter((tool) => !tool_set.has(tool)));
