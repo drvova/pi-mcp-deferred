@@ -5,6 +5,7 @@ import { load_mcp_config, set_mcp_server_enabled } from './config.js';
 import { create_mcp_tool_registration_metadata, create_stub_tool_metadata } from './metadata.js';
 import { handle_mcp_profile } from './profile-actions.js';
 import { get_project_mcp_config_load_decision } from './project-config-loader.js';
+import { ensure_oauth_config, is_oauth_enabled, run_interactive_login, } from './oauth.js';
 import { format_mcp_tool_result } from './result.js';
 import { clear_mcp_idle_timer, create_server_states, get_mcp_idle_timeout_ms, is_server_promoted, mark_server_promoted, remove_server_tools_from_active, report_mcp_failure, set_connect_feedback, summarize_mcp_tool_params, update_mcp_status, } from './server-state.js';
 import { format_mcp_server_list, show_mcp_home_modal, show_mcp_server_modal, show_mcp_text_modal, } from './ui.js';
@@ -88,9 +89,31 @@ export default async function mcp(pi) {
             state.error = undefined;
             if (ctx)
                 update_mcp_status(ctx, servers);
-            const client = new McpClient(state.config);
+            const resolve_config = async (interactive) => {
+                if (state.config.transport !== 'http')
+                    return state.config;
+                if (!is_oauth_enabled(state.config))
+                    return state.config;
+                const authed = await ensure_oauth_config(state.config, ctx, { interactive });
+                return authed ?? state.config;
+            };
+            const needs_interactive_oauth = (error) => state.config.transport === 'http' &&
+                error?.status === 401 &&
+                !state.config.headers?.Authorization &&
+                Boolean(ctx?.hasUI);
+            let client = new McpClient(await resolve_config(false));
             try {
-                await client.connect();
+                try {
+                    await client.connect();
+                }
+                catch (error) {
+                    if (!needs_interactive_oauth(error))
+                        throw error;
+                    await client.disconnect().catch(() => { });
+                    const authed = await run_interactive_login(state.config, error.wwwAuthenticate, ctx);
+                    client = new McpClient(authed);
+                    await client.connect();
+                }
                 state.client = client;
                 const mcp_tools = await client.listTools();
                 const tool_names = [];

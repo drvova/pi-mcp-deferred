@@ -67,6 +67,7 @@ export type RawMcpServerEntry = {
     env?: unknown;
     url?: unknown;
     headers?: unknown;
+    oauth?: unknown;
     disabled?: unknown;
     enabled?: unknown;
 };

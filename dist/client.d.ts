@@ -19,11 +19,25 @@ export interface McpStdioServerConfig extends McpServerTrustMetadata {
     args?: string[];
     env?: Record<string, string>;
 }
+export interface McpOAuthOptions {
+    authorization_endpoint?: string;
+    token_endpoint?: string;
+    registration_endpoint?: string;
+    client_id?: string;
+    client_secret?: string;
+    scopes?: string | string[];
+}
 export interface McpHttpServerConfig extends McpServerTrustMetadata {
     name: string;
     transport: 'http';
     url: string;
     headers?: Record<string, string>;
+    /**
+     * Enable OAuth 2.0 (authorization code + PKCE) for this server. `true`
+     * auto-discovers endpoints and dynamically registers a client; an object
+     * pins specific endpoints / a pre-registered client_id.
+     */
+    oauth?: boolean | McpOAuthOptions;
 }
 export type McpServerConfig = McpStdioServerConfig | McpHttpServerConfig;
 export interface McpToolInfo {

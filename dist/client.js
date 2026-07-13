@@ -140,7 +140,11 @@ export class McpClient {
         }
         if (!response.ok) {
             const body = await response.text().catch(() => '');
-            throw new Error(`MCP HTTP ${response.status}${body ? `: ${body}` : ''}`);
+            const error = new Error(`MCP HTTP ${response.status}${body ? `: ${body}` : ''}`);
+            error.status = response.status;
+            error.wwwAuthenticate =
+                response.headers.get('www-authenticate') ?? undefined;
+            throw error;
         }
         if (response.status === 204)
             return;

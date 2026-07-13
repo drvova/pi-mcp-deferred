@@ -105,6 +105,69 @@ Disconnect idle MCP servers after N milliseconds (default: 1800000 / 30 minutes)
 }
 ```
 
+### HTTP servers & authentication
+
+HTTP / streamable-HTTP MCP servers authenticate one of two ways: a static
+request `headers` token (below), or the interactive OAuth 2.0 flow (further
+down). For a static token, paste it from your provider as a bearer header:
+
+```json
+{
+  "linear": {
+    "type": "http",
+    "url": "https://mcp.linear.app/mcp",
+    "headers": {
+      "Authorization": "Bearer <your-access-token>"
+    }
+  }
+}
+```
+
+The `headers` object is sent verbatim on every request, so any scheme works
+(`Authorization: Bearer`, `X-API-Key`, etc.).
+
+### OAuth 2.0 (interactive)
+
+For servers that require OAuth, set `"oauth": true` instead of a static header.
+On connect (or on a `401`), Pi runs the OAuth 2.0 authorization-code + PKCE flow:
+it discovers the endpoints, dynamically registers a client, opens your browser
+to approve, captures the redirect on a loopback callback, and stores the access
++ refresh tokens in `~/.pi/agent/oauth-tokens.json` (mode `600`). Tokens are
+refreshed automatically; you only approve once.
+
+```json
+{
+  "linear": {
+    "type": "http",
+    "url": "https://mcp.linear.app/mcp",
+    "oauth": true
+  }
+}
+```
+
+If a provider gave you a pre-registered client or you want to pin endpoints,
+pass an object instead of `true`:
+
+```json
+{
+  "acme": {
+    "type": "http",
+    "url": "https://mcp.acme.com/mcp",
+    "oauth": {
+      "client_id": "your-client-id",
+      "scopes": ["read", "write"],
+      "authorization_endpoint": "https://auth.acme.com/authorize",
+      "token_endpoint": "https://auth.acme.com/token"
+    }
+  }
+}
+```
+
+Auto-discovery (RFC 8414 / RFC 9728) and dynamic client registration (RFC 7591)
+fill in anything you omit. The browser step needs an interactive session — in
+headless runs, connect once interactively (`/mcp connect <name>`) to mint the
+stored token, which then refreshes on its own.
+
 ## Tools
 
 ### `mcp__expand`

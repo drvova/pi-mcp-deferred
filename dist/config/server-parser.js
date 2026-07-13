@@ -34,11 +34,13 @@ export function parse_server(name, entry, metadata_trusted = true) {
         }
         is_string_record(entry.headers, 'headers', name);
         const headers = entry.headers;
+        const oauth = parse_oauth(entry.oauth, name);
         const config = {
             name,
             transport: 'http',
             url: entry.url.trim(),
             ...(headers ? { headers } : {}),
+            ...(oauth !== undefined ? { oauth } : {}),
             ...(disabled !== undefined ? { disabled } : {}),
             ...(deferred !== undefined ? { deferred } : {}),
             ...(metadata_trusted
@@ -69,6 +71,14 @@ export function parse_server(name, entry, metadata_trusted = true) {
         ...(metadata_trusted ? {} : { metadata_trusted: false }),
     };
     return config;
+}
+function parse_oauth(value, name) {
+    if (value === undefined || typeof value === 'boolean')
+        return value;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        throw new Error(`Invalid MCP server "${name}": oauth must be a boolean or an object`);
+    }
+    return value;
 }
 export function summarize_server_entry(server) {
     if (typeof server.url === 'string' && server.url.trim()) {
