@@ -45,8 +45,57 @@ function create_pkce() {
     const challenge = base64url(createHash('sha256').update(verifier).digest());
     return { verifier, challenge };
 }
+export function clear_token(name) {
+    const path = token_store_path();
+    const store = read_token_store();
+    if (!(name in store))
+        return false;
+    delete store[name];
+    mkdirSync(dirname(path), { recursive: true });
+    const tmp = join(dirname(path), `.oauth-${Date.now()}.tmp`);
+    writeFileSync(tmp, `${JSON.stringify(store, null, 2)}\n`, { mode: 0o600 });
+    renameSync(tmp, path);
+    return true;
+}
 export function is_oauth_enabled(config) {
     return config.transport === 'http' && Boolean(config.oauth);
+}
+// Auth state for UI display. undefined when auth is not applicable.
+export function oauth_status(config) {
+    if (config.transport !== 'http')
+        return undefined;
+    if (!is_oauth_enabled(config)) {
+        return config.headers?.Authorization ? { mode: 'static' } : undefined;
+    }
+    const stored = load_token(config.name);
+    if (!stored?.access_token)
+        return { mode: 'oauth', state: 'signed-out' };
+    const expired = typeof stored.expires_at === 'number' && Date.now() >= stored.expires_at;
+    if (expired) {
+        return {
+            mode: 'oauth',
+            state: stored.refresh_token ? 'expired-refreshable' : 'expired',
+            expires_at: stored.expires_at,
+        };
+    }
+    return { mode: 'oauth', state: 'authenticated', expires_at: stored.expires_at };
+}
+export function format_oauth_status(config) {
+    const status = oauth_status(config);
+    if (!status)
+        return undefined;
+    if (status.mode === 'static')
+        return 'static header';
+    switch (status.state) {
+        case 'authenticated':
+            return 'OAuth — signed in';
+        case 'expired-refreshable':
+            return 'OAuth — expired (auto-refresh)';
+        case 'expired':
+            return 'OAuth — expired, sign in again';
+        default:
+            return 'OAuth — not signed in';
+    }
 }
 function oauth_options(config) {
     return typeof config.oauth === 'object' && config.oauth ? config.oauth : {};

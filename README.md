@@ -189,6 +189,8 @@ Manage MCP servers interactively:
 /mcp connect <name>   // connect a specific server
 /mcp enable <name>    // enable a disabled server
 /mcp disable <name>   // disable a connected server
+/mcp login <name>     // OAuth sign-in via browser (oauth servers)
+/mcp logout <name>    // clear stored OAuth tokens for a server
 /mcp backup           // backup MCP config
 /mcp restore          // restore MCP config
 /mcp profile list     // list MCP profiles

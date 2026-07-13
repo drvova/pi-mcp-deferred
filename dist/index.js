@@ -5,10 +5,10 @@ import { load_mcp_config, set_mcp_server_enabled } from './config.js';
 import { create_mcp_tool_registration_metadata, create_stub_tool_metadata } from './metadata.js';
 import { handle_mcp_profile } from './profile-actions.js';
 import { get_project_mcp_config_load_decision } from './project-config-loader.js';
-import { ensure_oauth_config, is_oauth_enabled, run_interactive_login, } from './oauth.js';
+import { clear_token, ensure_oauth_config, is_oauth_enabled, run_interactive_login, } from './oauth.js';
 import { format_mcp_tool_result } from './result.js';
 import { clear_mcp_idle_timer, create_server_states, get_mcp_idle_timeout_ms, is_server_promoted, mark_server_promoted, remove_server_tools_from_active, report_mcp_failure, set_connect_feedback, summarize_mcp_tool_params, update_mcp_status, } from './server-state.js';
-import { format_mcp_server_list, show_mcp_home_modal, show_mcp_server_modal, show_mcp_text_modal, } from './ui.js';
+import { format_mcp_server_list, show_mcp_home_modal, show_mcp_server_modal, show_mcp_text_modal, show_oauth_server_picker, } from './ui.js';
 export function should_wait_for_mcp_connections(event) {
     const selected_tools = event.systemPromptOptions?.selectedTools;
     return (selected_tools?.some((tool) => tool.startsWith('mcp__')) ?? false);
@@ -289,6 +289,41 @@ export default async function mcp(pi) {
             }));
         }
     };
+    const oauth_login = async (name, ctx) => {
+        const server = servers.get(name);
+        if (!server) {
+            ctx.ui.notify(`Unknown server: ${name}`, 'warning');
+            return;
+        }
+        if (server.config.transport !== 'http' || !is_oauth_enabled(server.config)) {
+            ctx.ui.notify(`${name} is not an OAuth server (add "oauth": true)`, 'warning');
+            return;
+        }
+        if (!ctx.hasUI) {
+            ctx.ui.notify('OAuth login requires interactive mode', 'warning');
+            return;
+        }
+        try {
+            await run_interactive_login(server.config, undefined, ctx);
+            await disconnect_server(server, ctx);
+            await connect_server(server, ctx);
+            ctx.ui.notify(`Signed in to ${name}`);
+        }
+        catch (error) {
+            ctx.ui.notify(`OAuth login failed for ${name}: ${error instanceof Error ? error.message : String(error)}`, 'warning');
+        }
+    };
+    const oauth_logout = async (name, ctx) => {
+        const server = servers.get(name);
+        if (!server) {
+            ctx.ui.notify(`Unknown server: ${name}`, 'warning');
+            return;
+        }
+        const cleared = clear_token(name);
+        await disconnect_server(server, ctx);
+        update_mcp_status(ctx, servers);
+        ctx.ui.notify(cleared ? `Signed out of ${name}` : `${name} had no stored token`);
+    };
     const set_server_enabled = (name, enabled, ctx) => {
         const server = servers.get(name);
         if (!server)
@@ -403,7 +438,7 @@ export default async function mcp(pi) {
         }
     });
     pi.registerCommand('mcp', {
-        description: 'Manage MCP servers (modal, list, enable, disable, connect, backup, restore, profiles)',
+        description: 'Manage MCP servers (modal, list, enable, disable, connect, login, logout, backup, restore, profiles)',
         getArgumentCompletions: (prefix) => {
             const parts = prefix.split(' ');
             if (parts.length <= 1) {
@@ -413,6 +448,8 @@ export default async function mcp(pi) {
                     'enable',
                     'disable',
                     'connect',
+                    'login',
+                    'logout',
                     'backup',
                     'restore',
                     'profile',
@@ -428,7 +465,9 @@ export default async function mcp(pi) {
             }
             if (parts[0] === 'enable' ||
                 parts[0] === 'disable' ||
-                parts[0] === 'connect') {
+                parts[0] === 'connect' ||
+                parts[0] === 'login' ||
+                parts[0] === 'logout') {
                 const name_prefix = parts[1] || '';
                 return Array.from(servers.keys())
                     .filter((n) => n.startsWith(name_prefix))
@@ -458,6 +497,17 @@ export default async function mcp(pi) {
                     else if (selected === 'restore') {
                         if (await handle_mcp_restore(ctx))
                             return;
+                    }
+                    else if (selected === 'oauth login' ||
+                        selected === 'oauth logout') {
+                        const action = selected === 'oauth login' ? 'login' : 'logout';
+                        const target = await show_oauth_server_picker(ctx, servers, action);
+                        if (target) {
+                            if (action === 'login')
+                                await oauth_login(target, ctx);
+                            else
+                                await oauth_logout(target, ctx);
+                        }
                     }
                     else if (selected.startsWith('profile ')) {
                         if (await handle_mcp_profile(ctx, selected.split(/\s+/).slice(1))) {
@@ -544,8 +594,16 @@ export default async function mcp(pi) {
                     ctx.ui.notify(`Disabled ${name}`);
                     break;
                 }
+                case 'login': {
+                    await oauth_login(name, ctx);
+                    break;
+                }
+                case 'logout': {
+                    await oauth_logout(name, ctx);
+                    break;
+                }
                 default:
-                    ctx.ui.notify(`Unknown subcommand: ${sub}. Use manage, list, enable, disable, connect, backup, restore, or profile.`, 'warning');
+                    ctx.ui.notify(`Unknown subcommand: ${sub}. Use manage, list, enable, disable, connect, login, logout, backup, restore, or profile.`, 'warning');
             }
         },
     });

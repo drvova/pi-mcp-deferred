@@ -1,5 +1,27 @@
 import { show_picker_modal, show_settings_modal, show_text_modal, } from '@spences10/pi-tui-modal';
+import { format_oauth_status, is_oauth_enabled } from './oauth.js';
 import { DISABLED, ENABLED, format_server_status, format_server_target, } from './server-state.js';
+export async function show_oauth_server_picker(ctx, servers, action) {
+    const items = Array.from(servers.values())
+        .filter((state) => state.config.transport === 'http' && is_oauth_enabled(state.config))
+        .map((state) => ({
+        value: state.config.name,
+        label: state.config.name,
+        description: format_oauth_status(state.config) ?? 'OAuth',
+    }));
+    if (items.length === 0) {
+        ctx.ui.notify('No OAuth-enabled MCP servers');
+        return undefined;
+    }
+    return show_picker_modal(ctx, {
+        title: action === 'login' ? 'Sign in (OAuth)' : 'Sign out (OAuth)',
+        subtitle: action === 'login'
+            ? 'Authenticate via browser'
+            : 'Clear stored tokens',
+        items,
+        footer: 'enter selects • esc cancel',
+    });
+}
 export function format_mcp_server_list(servers) {
     if (servers.size === 0)
         return 'No MCP servers configured';
@@ -21,6 +43,16 @@ export async function show_mcp_home_modal(ctx, servers) {
                 value: 'manage',
                 label: 'Manage servers',
                 description: 'Enable, disable, inspect status and tools',
+            },
+            {
+                value: 'oauth login',
+                label: 'Sign in (OAuth)',
+                description: 'Authenticate an OAuth MCP server via browser',
+            },
+            {
+                value: 'oauth logout',
+                label: 'Sign out (OAuth)',
+                description: 'Clear stored OAuth tokens for a server',
             },
             {
                 value: 'list',
@@ -93,7 +125,8 @@ export async function show_mcp_server_modal(ctx, servers, set_server_enabled) {
             const server = servers.get(item.id);
             if (!server)
                 return undefined;
-            return `${format_server_status(server)} • ${server.tool_names.length} tools • ${server.config.transport}`;
+            const auth = format_oauth_status(server.config);
+            return `${format_server_status(server)} • ${server.tool_names.length} tools • ${server.config.transport}${auth ? ` • ${auth}` : ''}`;
         },
         metadata: (item) => {
             if (!item)
@@ -108,6 +141,9 @@ export async function show_mcp_server_modal(ctx, servers, set_server_enabled) {
                 server.config.metadata_trusted === false
                     ? 'Metadata: untrusted metadata suppressed'
                     : 'Metadata: trusted',
+                ...(format_oauth_status(server.config)
+                    ? [`Auth: ${format_oauth_status(server.config)}`]
+                    : []),
                 ...(server.error ? [`Error: ${server.error}`] : []),
             ];
         },
