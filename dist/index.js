@@ -20,6 +20,14 @@ function should_defer_mcp(server_config) {
     if (process.env.MY_PI_MCP_DEFERRED === '0') return false;
     return true;
 }
+function should_catalog_mcp(server_config) {
+    // Catalog tier: register no per-tool stubs; list the server in mcp__expand.
+    // Per-server override wins (catalog:false pins a server to native stubs).
+    if (server_config.catalog !== undefined) return server_config.catalog;
+    // Env kill-switch: MY_PI_MCP_CATALOG=0 reverts to all-native stubs.
+    if (process.env.MY_PI_MCP_CATALOG === '0') return false;
+    return true;
+}
 export default async function mcp(pi) {
     let initialized_cwd = null;
     let initialize_promise;
@@ -73,6 +81,101 @@ export default async function mcp(pi) {
         }, timeout_ms);
         state.idle_timer.unref?.();
     };
+    // Register a server's tools as stubs (deferred) or full schemas (eager).
+    // Shared by connect (native tier) and mcp__expand (loading a catalogued server).
+    const register_server_tools = (state, mcp_tools) => {
+        const tool_names = [];
+        const deferred = should_defer_mcp(state.config);
+        for (const mcp_tool of mcp_tools) {
+            const tool_name = `mcp__${state.config.name}__${mcp_tool.name}`;
+            tool_names.push(tool_name);
+            if (registered_tool_names.has(tool_name))
+                continue;
+            registered_tool_names.add(tool_name);
+            if (deferred) {
+                const stub = create_stub_tool_metadata(state.config.name, mcp_tool.name, mcp_tool.description, mcp_tool.inputSchema);
+                const _original_tool_name = mcp_tool.name;
+                pi.registerTool(defineTool({
+                    name: tool_name,
+                    label: stub.label,
+                    description: stub.description,
+                    parameters: stub.parameters,
+                    execute: async (_id, params) => {
+                        const was_stub = !is_server_promoted(state);
+                        if (was_stub) {
+                            await promote_server_tools(state);
+                        }
+                        clear_mcp_idle_timer(state);
+                        state.active_call_count += 1;
+                        try {
+                            if (!state.client || state.status !== 'connected') {
+                                await connect_server(state);
+                            }
+                            const result = (await state.client.callTool(_original_tool_name, params));
+                            const formatted = format_mcp_tool_result(result, {
+                                tool_name,
+                                input_summary: summarize_mcp_tool_params(params),
+                            });
+                            const prefix = was_stub
+                                ? `[Promoted "${state.config.name}" on first call] `
+                                : '';
+                            return {
+                                content: [{ type: 'text', text: prefix + formatted.text }],
+                                details: formatted.details,
+                            };
+                        }
+                        catch (err) {
+                            if (was_stub) {
+                                return {
+                                    content: [{ type: 'text', text: `Tool "${_original_tool_name}" was auto-promoted from server "${state.config.name}" but execution failed: ${err.message}. The full schema is now loaded — please retry with the correct parameters.` }],
+                                };
+                            }
+                            throw err;
+                        }
+                        finally {
+                            state.active_call_count -= 1;
+                            state.last_used_at = Date.now();
+                            schedule_idle_disconnect(state, undefined);
+                        }
+                    },
+                }));
+            }
+            else {
+                const metadata = create_mcp_tool_registration_metadata(state.config, mcp_tool);
+                pi.registerTool(defineTool({
+                    name: tool_name,
+                    label: metadata.label,
+                    description: metadata.description,
+                    parameters: metadata.parameters,
+                    execute: async (_id, params) => {
+                        clear_mcp_idle_timer(state);
+                        state.active_call_count += 1;
+                        try {
+                            if (!state.client || state.status !== 'connected') {
+                                await connect_server(state);
+                            }
+                            const result = (await state.client.callTool(mcp_tool.name, params));
+                            const formatted = format_mcp_tool_result(result, {
+                                tool_name,
+                                input_summary: summarize_mcp_tool_params(params),
+                            });
+                            return {
+                                content: [{ type: 'text', text: formatted.text }],
+                                details: formatted.details,
+                            };
+                        }
+                        finally {
+                            state.active_call_count -= 1;
+                            state.last_used_at = Date.now();
+                            schedule_idle_disconnect(state, undefined);
+                        }
+                    },
+                }));
+            }
+        }
+        state.tool_names = tool_names;
+        return tool_names;
+    };
     const connect_server = async (state, ctx) => {
         if (state.status === 'connected')
             return;
@@ -113,108 +216,25 @@ export default async function mcp(pi) {
                 }
                 state.client = client;
                 const mcp_tools = await client.listTools();
-                const tool_names = [];
-                const deferred = should_defer_mcp(state.config);
-                for (const mcp_tool of mcp_tools) {
-                    const tool_name = `mcp__${state.config.name}__${mcp_tool.name}`;
-                    tool_names.push(tool_name);
-                    if (registered_tool_names.has(tool_name))
-                        continue;
-                    registered_tool_names.add(tool_name);
-                    if (deferred) {
-                        // DEFERRED: register compact stub
-                        const stub = create_stub_tool_metadata(state.config.name, mcp_tool.name, mcp_tool.description, mcp_tool.inputSchema);
-                        const _original_tool_name = mcp_tool.name;
-                        pi.registerTool(defineTool({
-                            name: tool_name,
-                            label: stub.label,
-                            description: stub.description,
-                            parameters: stub.parameters,
-                            execute: async (_id, params) => {
-                                // Auto-promote this server on first call
-                                const was_stub = !is_server_promoted(state);
-                                if (was_stub) {
-                                    await promote_server_tools(state);
-                                }
-                                // Execute with full client (works whether just promoted or already promoted)
-                                clear_mcp_idle_timer(state);
-                                state.active_call_count += 1;
-                                try {
-                                    if (!state.client || state.status !== 'connected') {
-                                        await connect_server(state);
-                                    }
-                                    const result = (await state.client.callTool(_original_tool_name, params));
-                                    const formatted = format_mcp_tool_result(result, {
-                                        tool_name,
-                                        input_summary: summarize_mcp_tool_params(params),
-                                    });
-                                    const prefix = was_stub
-                                        ? `[Promoted "${state.config.name}" on first call] `
-                                        : '';
-                                    return {
-                                        content: [{ type: 'text', text: prefix + formatted.text }],
-                                        details: formatted.details,
-                                    };
-                                }
-                                catch (err) {
-                                    if (was_stub) {
-                                        return {
-                                            content: [{ type: 'text', text: `Tool "${_original_tool_name}" was auto-promoted from server "${state.config.name}" but execution failed: ${err.message}. The full schema is now loaded — please retry with the correct parameters.` }],
-                                        };
-                                    }
-                                    throw err;
-                                }
-                                finally {
-                                    state.active_call_count -= 1;
-                                    state.last_used_at = Date.now();
-                                    schedule_idle_disconnect(state, undefined);
-                                }
-                            },
-                        }));
-                    }
-                    else {
-                        // EAGER: register full schema (original behavior)
-                        const metadata = create_mcp_tool_registration_metadata(state.config, mcp_tool);
-                        pi.registerTool(defineTool({
-                            name: tool_name,
-                            label: metadata.label,
-                            description: metadata.description,
-                            parameters: metadata.parameters,
-                            execute: async (_id, params) => {
-                                clear_mcp_idle_timer(state);
-                                state.active_call_count += 1;
-                                try {
-                                    if (!state.client || state.status !== 'connected') {
-                                        await connect_server(state);
-                                    }
-                                    const result = (await state.client.callTool(mcp_tool.name, params));
-                                    const formatted = format_mcp_tool_result(result, {
-                                        tool_name,
-                                        input_summary: summarize_mcp_tool_params(params),
-                                    });
-                                    return {
-                                        content: [{ type: 'text', text: formatted.text }],
-                                        details: formatted.details,
-                                    };
-                                }
-                                finally {
-                                    state.active_call_count -= 1;
-                                    state.last_used_at = Date.now();
-                                    schedule_idle_disconnect(state, undefined);
-                                }
-                            },
-                        }));
-                    }
+                state.discovered_tools = mcp_tools;
+                if (should_catalog_mcp(state.config) && !is_server_promoted(state)) {
+                    // Catalog tier: register no stubs; the server is listed in mcp__expand.
+                    state.catalogued = true;
+                    state.tool_names = mcp_tools.map((t) => `mcp__${state.config.name}__${t.name}`);
                 }
-                state.tool_names = tool_names;
+                else {
+                    state.catalogued = false;
+                    register_server_tools(state, mcp_tools);
+                }
                 state.status = 'connected';
                 state.last_used_at = Date.now();
                 schedule_idle_disconnect(state, ctx);
                 if (!state.enabled) {
                     remove_server_tools_from_active(pi, state.tool_names);
                 }
-                else if (!process.env.MY_PI_RUNTIME_MODE ||
-                    process.env.MY_PI_RUNTIME_MODE === 'interactive') {
+                else if (!state.catalogued &&
+                    (!process.env.MY_PI_RUNTIME_MODE ||
+                        process.env.MY_PI_RUNTIME_MODE === 'interactive')) {
                     const active = pi.getActiveTools();
                     pi.setActiveTools([
                         ...new Set([...active, ...state.tool_names]),
@@ -285,6 +305,113 @@ export default async function mcp(pi) {
                 },
             }));
         }
+    };
+    // Load a catalogued server: register its tools (stub tier) from cached metadata,
+    // move it out of the catalog, and activate the tools. No reconnect required.
+    const load_catalog_server = (state, ctx) => {
+        if (!state.catalogued || !state.discovered_tools)
+            return 0;
+        register_server_tools(state, state.discovered_tools);
+        state.catalogued = false;
+        if (state.enabled &&
+            (!process.env.MY_PI_RUNTIME_MODE ||
+                process.env.MY_PI_RUNTIME_MODE === 'interactive')) {
+            const active = pi.getActiveTools();
+            pi.setActiveTools([...new Set([...active, ...state.tool_names])]);
+        }
+        if (ctx)
+            update_mcp_status(ctx, servers);
+        return state.tool_names.length;
+    };
+    const build_expand_description = () => {
+        const base = 'Load an MCP server\'s tools. Servers start "catalogued" (listed but not loaded) to save context. Call mcp__expand with a server name to register its tools, then call the tool you need. Pass "all" to load everything.';
+        const cat = Array.from(servers.values()).filter((s) => s.catalogued && s.enabled);
+        if (cat.length === 0)
+            return base;
+        const lines = cat
+            .sort((a, b) => a.config.name.localeCompare(b.config.name))
+            .map((s) => {
+            const tools = s.discovered_tools ?? [];
+            const sample = tools.slice(0, 6).map((t) => t.name).join(', ');
+            const more = tools.length > 6 ? ', \u2026' : '';
+            return `- ${s.config.name} (${tools.length}): ${sample}${more}`;
+        });
+        return `${base}\n\nAvailable (not yet loaded):\n${lines.join('\n')}`;
+    };
+    let expand_sig = '';
+    const catalog_signature = () => Array.from(servers.values())
+        .filter((s) => s.catalogued && s.enabled)
+        .map((s) => s.config.name)
+        .sort()
+        .join(',');
+    const register_expand_tool = (ctx) => {
+        expand_sig = catalog_signature();
+        pi.registerTool(defineTool({
+            name: 'mcp__expand',
+            label: 'mcp: expand server schemas',
+            description: build_expand_description(),
+            parameters: {
+                type: 'object',
+                properties: {
+                    server: {
+                        type: 'string',
+                        description: 'Server name to load/expand, or "all"',
+                    },
+                },
+                required: ['server'],
+            },
+            execute: async (_id, params) => {
+                await ensure_servers(ctx.cwd, ctx);
+                const target = params.server;
+                if (target === 'all') {
+                    let loaded = 0;
+                    let promoted = 0;
+                    for (const state of servers.values()) {
+                        if (state.catalogued)
+                            loaded += load_catalog_server(state, ctx);
+                    }
+                    for (const state of servers.values()) {
+                        if (!state.catalogued &&
+                            state.status === 'connected' &&
+                            !is_server_promoted(state)) {
+                            await promote_server_tools(state);
+                            promoted += 1;
+                        }
+                    }
+                    register_expand_tool(ctx);
+                    return {
+                        content: [{ type: 'text', text: `Loaded ${loaded} catalogued tool(s); promoted ${promoted} server(s). Full schemas load on first call.` }],
+                    };
+                }
+                const state = servers.get(target);
+                if (!state) {
+                    return {
+                        content: [{ type: 'text', text: `Unknown server: ${target}. Available: ${Array.from(servers.keys()).join(', ')}` }],
+                    };
+                }
+                if (state.catalogued) {
+                    const n = load_catalog_server(state, ctx);
+                    register_expand_tool(ctx);
+                    return {
+                        content: [{ type: 'text', text: `Loaded "${target}": ${n} tool(s) now callable. Call one to load its full schema.` }],
+                    };
+                }
+                if (state.status !== 'connected') {
+                    return {
+                        content: [{ type: 'text', text: `Server "${target}" is not connected (status: ${state.status}).` }],
+                    };
+                }
+                if (is_server_promoted(state)) {
+                    return {
+                        content: [{ type: 'text', text: `Server "${target}" already loaded with full schemas.` }],
+                    };
+                }
+                await promote_server_tools(state);
+                return {
+                    content: [{ type: 'text', text: `Expanded "${target}". ${state.tool_names.length} tools now have full schemas.` }],
+                };
+            },
+        }));
     };
     const oauth_login = async (name, ctx) => {
         const server = servers.get(name);
@@ -357,60 +484,15 @@ export default async function mcp(pi) {
         update_mcp_status(ctx, servers);
         // Phase 1 Discover (startup): connect in the background to register compact
         // stubs. Non-blocking, so launch stays fast; full schemas still defer to use.
-        void connect_all_servers({ ctx });
-        // Register mcp__expand tool for explicit schema promotion
-        pi.registerTool(defineTool({
-            name: 'mcp__expand',
-            label: 'mcp: expand server schemas',
-            description: 'Load full tool schemas from an MCP server. Call this when you need detailed parameter info for a server\'s tools. Pass the server name to promote, or "all" to promote all connected servers.',
-            parameters: {
-                type: 'object',
-                properties: {
-                    server: {
-                        type: 'string',
-                        description: 'Server name to expand, or "all" for all connected servers',
-                    },
-                },
-                required: ['server'],
-            },
-            execute: async (_id, params) => {
-                await ensure_servers(ctx.cwd, ctx);
-                const target = params.server;
-                if (target === 'all') {
-                    const connected = Array.from(servers.values())
-                        .filter(s => s.status === 'connected' && !is_server_promoted(s));
-                    for (const state of connected) {
-                        await promote_server_tools(state);
-                    }
-                    return {
-                        content: [{ type: 'text', text: `Expanded ${connected.length} server(s). Full schemas now available.` }],
-                    };
-                }
-                const state = servers.get(target);
-                if (!state) {
-                    return {
-                        content: [{ type: 'text', text: `Unknown server: ${target}. Available: ${Array.from(servers.keys()).join(', ')}` }],
-                    };
-                }
-                if (state.status !== 'connected') {
-                    return {
-                        content: [{ type: 'text', text: `Server "${target}" is not connected (status: ${state.status}). Use /mcp connect ${target} first.` }],
-                    };
-                }
-                if (is_server_promoted(state)) {
-                    return {
-                        content: [{ type: 'text', text: `Server "${target}" already expanded. Full schemas loaded.` }],
-                    };
-                }
-                await promote_server_tools(state);
-                return {
-                    content: [{ type: 'text', text: `Expanded "${target}". ${state.tool_names.length} tools now have full schemas.` }],
-                };
-            },
-        }));
+        void connect_all_servers({ ctx }).then(() => register_expand_tool(ctx));
+        // Register the catalog/expand tool (description refreshes as servers connect).
+        register_expand_tool(ctx);
     });
     pi.on('before_agent_start', async (event, ctx) => {
         await ensure_servers(ctx.cwd, ctx);
+        // Refresh the catalog listing for servers that connected since last turn.
+        if (catalog_signature() !== expand_sig)
+            register_expand_tool(ctx);
         if (!should_wait_for_mcp_connections(event)) {
             await connect_all_servers({ ctx });
             return event;

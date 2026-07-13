@@ -18,9 +18,20 @@ This causes:
 
 ## Solution
 
-Three-phase deferred context engine (inspired by [Factory's Deferred Context Engine](https://factory.ai/news/deferred-context-engine)):
+Four-phase deferred context engine (inspired by [Factory's Deferred Context Engine](https://factory.ai/news/deferred-context-engine)):
 
-### Phase 1: Discover (startup)
+### Phase 0: Catalog (startup, ON by default)
+
+Servers register **no per-tool stubs** at all. Instead each server contributes one
+line to the `mcp__expand` tool — name, tool count, and a few sample tool names
+(~30 tokens/server). The model sees which servers exist and what they do, and calls
+`mcp__expand({ server })` to load a server's tools (Phase 1) before using them.
+
+Measured idle cost: **~488 tokens** for the whole `mcp__expand` catalog (20 servers)
+vs ~24K for all-native stubs — **~98% off**. Tradeoff: one `expand` round-trip the
+first time a server is used in a session. Pin hot servers to skip it (see below).
+
+### Phase 1: Discover (on expand)
 
 Register **compact stubs** instead of full schemas. Each stub contains:
 
@@ -61,9 +72,34 @@ Remove any existing `npm:@spences10/pi-mcp` entry — this is a drop-in replacem
 
 ## Configuration
 
+### Catalog mode (ON by default)
+
+Every server starts catalogued — listed in `mcp__expand`, no stubs registered — for
+~98% idle token savings. The model calls `mcp__expand({ server })` to load a server
+before first use.
+
+**Pin a hot server native** (always-loaded stubs, no expand step) — add `"catalog": false`:
+
+```json
+{
+  "my-hot-server": {
+    "command": "npx",
+    "args": ["-y", "some-mcp-server"],
+    "catalog": false
+  }
+}
+```
+
+**Disable catalog globally** (back to all-native stubs) — set env var:
+
+```bash
+export MY_PI_MCP_CATALOG=0
+```
+
 ### Deferred mode (ON by default)
 
-All MCP servers use deferred mode by default. No configuration needed.
+Once a server is loaded, its tools register as **compact stubs**; full schemas load
+on first call. No configuration needed.
 
 **Disable globally** — set env var:
 

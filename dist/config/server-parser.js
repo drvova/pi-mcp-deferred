@@ -23,6 +23,9 @@ export function parse_server(name, entry, metadata_trusted = true) {
     const deferred = typeof entry.deferred === 'boolean'
         ? entry.deferred
         : undefined;
+    const catalog = typeof entry.catalog === 'boolean'
+        ? entry.catalog
+        : undefined;
     if (type && !['stdio', 'http', 'streamable-http'].includes(type)) {
         throw new Error(`Invalid MCP server "${name}": unsupported transport type "${type}"`);
     }
@@ -43,6 +46,7 @@ export function parse_server(name, entry, metadata_trusted = true) {
             ...(oauth !== undefined ? { oauth } : {}),
             ...(disabled !== undefined ? { disabled } : {}),
             ...(deferred !== undefined ? { deferred } : {}),
+            ...(catalog !== undefined ? { catalog } : {}),
             ...(metadata_trusted
                 ? {}
                 : { metadata_trusted: false }),
@@ -68,6 +72,7 @@ export function parse_server(name, entry, metadata_trusted = true) {
         ...(env ? { env } : {}),
         ...(disabled !== undefined ? { disabled } : {}),
         ...(deferred !== undefined ? { deferred } : {}),
+        ...(catalog !== undefined ? { catalog } : {}),
         ...(metadata_trusted ? {} : { metadata_trusted: false }),
     };
     return config;
