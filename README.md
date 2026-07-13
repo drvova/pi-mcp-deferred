@@ -27,7 +27,7 @@ Register **compact stubs** instead of full schemas. Each stub contains:
 - Tool name and first-sentence description
 - Property names, types, and required arrays (no descriptions/defaults/examples)
 - Nested object properties one level deep
-- Enum values (if <= 20 items)
+- Enum values (bounded by serialized size, ~150 tokens)
 
 This saves ~60-80% tokens vs full schemas while keeping enough structure for the LLM to generate valid function calls.
 

@@ -84,7 +84,9 @@ function compact_property(def) {
     if (Array.isArray(def)) return { type: 'array' };
     const compact = {};
     if (def.type) compact.type = def.type;
-    if (Array.isArray(def.enum) && def.enum.length <= 20) compact.enum = def.enum;
+    // Keep enums the model needs to emit valid calls; bound by serialized size
+    // (~150 tokens) so realistic enums survive and only pathological giant ones drop.
+    if (Array.isArray(def.enum) && JSON.stringify(def.enum).length <= 600) compact.enum = def.enum;
     if (def.type === 'object' && def.properties) {
         // Recurse one level for nested objects — keeps param names visible
         const nested = {};
