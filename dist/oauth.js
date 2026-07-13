@@ -58,7 +58,10 @@ export function clear_token(name) {
     return true;
 }
 export function is_oauth_enabled(config) {
-    return config.transport === 'http' && Boolean(config.oauth);
+    // OAuth applies when the config declares it, or when a token already exists
+    // (a server can enroll via a 401 + WWW-Authenticate discovery with no config key).
+    return (config.transport === 'http' &&
+        (Boolean(config.oauth) || Boolean(load_token(config.name))));
 }
 // Auth state for UI display. undefined when auth is not applicable.
 export function oauth_status(config) {
