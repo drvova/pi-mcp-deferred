@@ -22,14 +22,19 @@ Four-phase deferred context engine (inspired by [Factory's Deferred Context Engi
 
 ### Phase 0: Catalog (startup, ON by default)
 
-Servers register **no per-tool stubs** at all. Instead each server contributes one
-line to the `mcp__expand` tool — name, tool count, and a few sample tool names
-(~30 tokens/server). The model sees which servers exist and what they do, and calls
-`mcp__expand({ server })` to load a server's tools (Phase 1) before using them.
+Servers register **no per-tool stubs** at all, and **no MCP server is spawned at
+startup**. Each server contributes one line to the `mcp__expand` tool — name, tool
+count, and a few sample tool names (~30 tokens/server), read from a **disk cache**
+(`~/.pi/agent/mcp-catalog-cache.json`). The model sees which servers exist and what
+they do, and calls `mcp__expand({ server })` to load a server's tools (Phase 1)
+before using them. A server's process starts only when one of its tools is actually
+used — so sessions (including subagent child sessions that inherit this extension)
+never spawn a process pool they don't use.
 
 Measured idle cost: **~488 tokens** for the whole `mcp__expand` catalog (20 servers)
 vs ~24K for all-native stubs — **~98% off**. Tradeoff: one `expand` round-trip the
-first time a server is used in a session. Pin hot servers to skip it (see below).
+first time a server is used in a session (and, on a cold cache, one connect to index
+it — cached thereafter). Pin hot servers to skip it (see below).
 
 ### Phase 1: Discover (on expand)
 

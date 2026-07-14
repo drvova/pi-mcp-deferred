@@ -26,12 +26,14 @@ export function remove_server_tools_from_active(pi, tool_names) {
     const tool_set = new Set(tool_names);
     pi.setActiveTools(pi.getActiveTools().filter((tool) => !tool_set.has(tool)));
 }
+const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 export function get_mcp_idle_timeout_ms(state) {
     const configured = state.config.idle_timeout_ms;
-    const value = configured ??
-        (process.env.MY_PI_MCP_IDLE_TIMEOUT_MS
-            ? Number(process.env.MY_PI_MCP_IDLE_TIMEOUT_MS)
-            : undefined);
+    const env = process.env.MY_PI_MCP_IDLE_TIMEOUT_MS
+        ? Number(process.env.MY_PI_MCP_IDLE_TIMEOUT_MS)
+        : undefined;
+    // Default to 30 min so idle servers actually disconnect (0 disables).
+    const value = configured ?? env ?? DEFAULT_IDLE_TIMEOUT_MS;
     return value && Number.isFinite(value) && value > 0
         ? value
         : undefined;

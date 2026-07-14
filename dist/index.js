@@ -1,6 +1,7 @@
 import { defineTool, } from '@earendil-works/pi-coding-agent';
 import { handle_mcp_backup, handle_mcp_restore, } from './backup-restore.js';
 import { McpClient } from './client.js';
+import { read_cached_tools, write_cached_tools } from './catalog-cache.js';
 import { load_mcp_config, set_mcp_server_enabled } from './config.js';
 import { create_mcp_tool_registration_metadata, create_stub_tool_metadata } from './metadata.js';
 import { handle_mcp_profile } from './profile-actions.js';
@@ -111,14 +112,16 @@ export default async function mcp(pi) {
                     parameters: stub.parameters,
                     execute: async (_id, params) => {
                         const was_stub = !is_server_promoted(state);
-                        if (was_stub) {
-                            await promote_server_tools(state);
-                        }
                         clear_mcp_idle_timer(state);
                         state.active_call_count += 1;
                         try {
+                            // Connect BEFORE promoting: promote needs a live client,
+                            // and a warm-cache stub is registered without connecting.
                             if (!state.client || state.status !== 'connected') {
                                 await connect_server(state);
+                            }
+                            if (was_stub) {
+                                await promote_server_tools(state);
                             }
                             const result = (await state.client.callTool(_original_tool_name, params));
                             const formatted = format_mcp_tool_result(result, {
@@ -226,8 +229,12 @@ export default async function mcp(pi) {
                 state.client = client;
                 const mcp_tools = await client.listTools();
                 state.discovered_tools = mcp_tools;
-                if (should_catalog_mcp(state.config) && !is_server_promoted(state)) {
+                write_cached_tools(state.config, mcp_tools);
+                if (should_catalog_mcp(state.config) &&
+                    !is_server_promoted(state) &&
+                    state.catalogued !== false) {
                     // Catalog tier: register no stubs; the server is listed in mcp__expand.
+                    // (catalogued===false means it was already loaded — don't re-catalog.)
                     state.catalogued = true;
                     state.tool_names = mcp_tools.map((t) => `mcp__${state.config.name}__${t.name}`);
                 }
@@ -268,14 +275,6 @@ export default async function mcp(pi) {
             }
         })();
         await state.connect_promise;
-    };
-    const connect_all_servers = async (options = {}) => {
-        await Promise.allSettled(Array.from(servers.values())
-            .filter((state) => state.enabled)
-            .filter((state) => options.include_failed || state.status !== 'failed')
-            .map((state) => connect_server(state, options.ctx)));
-        if (options.ctx)
-            update_mcp_status(options.ctx, servers);
     };
     const promote_server_tools = async (state) => {
         if (!state.client || state.status !== 'connected') return;
@@ -345,6 +344,8 @@ export default async function mcp(pi) {
             .sort((a, b) => a.config.name.localeCompare(b.config.name))
             .map((s) => {
             const tools = s.discovered_tools ?? [];
+            if (tools.length === 0)
+                return `- ${s.config.name} (loads on expand)`;
             const sample = tools.slice(0, 6).map((t) => t.name).join(', ');
             const more = tools.length > 6 ? ', \u2026' : '';
             return `- ${s.config.name} (${tools.length}): ${sample}${more}`;
@@ -386,8 +387,11 @@ export default async function mcp(pi) {
                     let loaded = 0;
                     let promoted = 0;
                     for (const state of servers.values()) {
-                        if (state.catalogued)
+                        if (state.catalogued) {
+                            if (!state.discovered_tools)
+                                await connect_server(state, ctx);
                             loaded += load_catalog_server(state, ctx);
+                        }
                     }
                     for (const state of servers.values()) {
                         if (!state.catalogued &&
@@ -409,6 +413,9 @@ export default async function mcp(pi) {
                     };
                 }
                 if (state.catalogued) {
+                    // Cold cache: connect once to discover (and populate the cache).
+                    if (!state.discovered_tools)
+                        await connect_server(state, ctx);
                     const n = load_catalog_server(state, ctx);
                     register_expand_tool(ctx);
                     return {
@@ -432,6 +439,41 @@ export default async function mcp(pi) {
             },
         }));
         refresh_tools();
+    };
+    // Build the catalog from disk cache at startup WITHOUT connecting. Servers
+    // spawn only when a tool is actually used, so subagent sessions that inherit
+    // this extension don't leak an MCP process pool per child.
+    const hydrate_from_cache = (ctx) => {
+        for (const state of servers.values()) {
+            if (!state.enabled || state.status === 'connected' || state.discovered_tools)
+                continue;
+            const cached = read_cached_tools(state.config);
+            if (should_catalog_mcp(state.config)) {
+                state.catalogued = true;
+                if (cached) {
+                    state.discovered_tools = cached;
+                    state.tool_names = cached.map((t) => `mcp__${state.config.name}__${t.name}`);
+                }
+            }
+            else if (cached) {
+                // Pinned native server, warm cache: register from cache, no spawn.
+                state.discovered_tools = cached;
+                state.catalogued = false;
+                register_server_tools(state, cached);
+                if (!process.env.MY_PI_RUNTIME_MODE ||
+                    process.env.MY_PI_RUNTIME_MODE === 'interactive') {
+                    const active = pi.getActiveTools();
+                    pi.setActiveTools([...new Set([...active, ...state.tool_names])]);
+                }
+                refresh_tools();
+            }
+            else {
+                // Pinned native server, cold cache: connect once to populate it.
+                void connect_server(state, ctx);
+            }
+        }
+        if (ctx)
+            update_mcp_status(ctx, servers);
     };
     // Phase 4: re-defer promoted servers to compact stubs when the context window
     // is under pressure. Reclaims ~69% of a server's schema tokens; tools stay
@@ -527,11 +569,10 @@ export default async function mcp(pi) {
     };
     pi.on('session_start', async (_event, ctx) => {
         await ensure_servers(ctx.cwd, ctx);
-        update_mcp_status(ctx, servers);
-        // Phase 1 Discover (startup): connect in the background to register compact
-        // stubs. Non-blocking, so launch stays fast; full schemas still defer to use.
-        void connect_all_servers({ ctx }).then(() => register_expand_tool(ctx));
-        // Register the catalog/expand tool (description refreshes as servers connect).
+        // Phase 0 Catalog (startup): build the listing from the disk cache WITHOUT
+        // connecting. Servers spawn only on first use, so subagent sessions that
+        // inherit this extension don't leak a process pool per child.
+        hydrate_from_cache(ctx);
         register_expand_tool(ctx);
     });
     pi.on('before_agent_start', async (event, ctx) => {
@@ -548,7 +589,8 @@ export default async function mcp(pi) {
                 redefer_idle_servers(ctx);
         }
         if (!should_wait_for_mcp_connections(event)) {
-            await connect_all_servers({ ctx });
+            // No MCP tools selected this turn: do NOT connect anything. The catalog
+            // listing already comes from cache; servers spawn only on actual use.
             return event;
         }
         const selected_server_names = new Set((event.systemPromptOptions?.selectedTools ?? [])
@@ -744,8 +786,11 @@ export default async function mcp(pi) {
     });
     if (process.env.MY_PI_RUNTIME_MODE &&
         process.env.MY_PI_RUNTIME_MODE !== 'interactive') {
+        // Headless/non-interactive (incl. subagent) load: hydrate the catalog from
+        // cache instead of spawning every server. Servers connect only on use, so
+        // subagent sessions don't leak a process pool per child.
         await ensure_servers(process.cwd());
-        await connect_all_servers({ include_failed: true });
+        hydrate_from_cache();
     }
     pi.on('session_before_compact', async (event, ctx) => {
         // Only reclaim on automatic compaction (threshold/overflow), not manual /compact.
