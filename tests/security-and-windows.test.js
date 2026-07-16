@@ -16,7 +16,7 @@ describe('OAuth browser URL handling', () => {
             const redirect = new URL(opened.searchParams.get('redirect_uri'));
             redirect.searchParams.set('error', 'access_denied');
             redirect.searchParams.set('state', opened.searchParams.get('state'));
-            void fetch(redirect);
+            void fetch(redirect).catch(() => {});
         });
 
         await expect(run_interactive_login({

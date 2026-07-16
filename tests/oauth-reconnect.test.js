@@ -99,7 +99,7 @@ describe('OAuth client reconnection', () => {
 
     afterAll(async () => {
         if (events && ctx)
-            await events.get('session_shutdown')({}, ctx);
+            await events.get('session_shutdown')?.({}, ctx);
         if (mcp_server?.listening)
             await new Promise((resolve) => mcp_server.close(resolve));
         rmSync(agent_dir, { recursive: true, force: true });
