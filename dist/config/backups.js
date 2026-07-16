@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { global_mcp_config_path, mcp_backups_dir, project_mcp_config_path, timestamp_for_filename, } from './paths.js';
 import { read_config_file, write_config_file } from './read-write.js';
 function parse_created_at_from_backup_filename(filename) {
@@ -27,7 +27,7 @@ function create_backup_file(cwd) {
 }
 function to_backup_info(path, backup) {
     return {
-        filename: path.split('/').pop() ?? path,
+        filename: basename(path),
         path,
         created_at: backup.created_at,
         global_server_count: Object.keys(backup.global.config.mcpServers)

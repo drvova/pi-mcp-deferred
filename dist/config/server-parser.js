@@ -64,12 +64,16 @@ export function parse_server(name, entry, metadata_trusted = true) {
     is_string_record(entry.env, 'env', name);
     const args = entry.args;
     const env = entry.env;
+    const cwd = typeof entry.cwd === 'string' && entry.cwd.trim()
+        ? entry.cwd.trim()
+        : undefined;
     const config = {
         name,
         transport: 'stdio',
         command: entry.command.trim(),
         ...(args ? { args } : {}),
         ...(env ? { env } : {}),
+        ...(cwd ? { cwd } : {}),
         ...(disabled !== undefined ? { disabled } : {}),
         ...(deferred !== undefined ? { deferred } : {}),
         ...(catalog !== undefined ? { catalog } : {}),
