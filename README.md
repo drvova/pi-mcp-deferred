@@ -124,6 +124,8 @@ export MY_PI_MCP_DEFERRED=0
 }
 ```
 
+For stdio servers, `cwd` sets the working directory for the child process.
+
 ### Idle timeout
 
 Disconnect idle MCP servers after N milliseconds (default: 1800000 / 30 minutes):
@@ -165,8 +167,10 @@ For servers that require OAuth, set `"oauth": true` instead of a static header.
 On connect (or on a `401`), Pi runs the OAuth 2.0 authorization-code + PKCE flow:
 it discovers the endpoints, dynamically registers a client, opens your browser
 to approve, captures the redirect on a loopback callback, and stores the access
-+ refresh tokens in `~/.pi/agent/oauth-tokens.json` (mode `600`). Tokens are
-refreshed automatically; you only approve once.
+and refresh tokens in `~/.pi/agent/oauth-tokens.json` (mode `600`). Tokens are
+refreshed automatically; you only approve once. Running `/mcp login <name>`
+again replaces the stored credentials and reconnects an active client without
+requiring an extension reload.
 
 ```json
 {

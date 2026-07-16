@@ -1,5 +1,28 @@
 import { spawn } from 'node:child_process';
+import { basename } from 'node:path';
 import { create_child_process_env } from './env.js';
+const WINDOWS_SHELL_COMMANDS = new Set(['bunx', 'bunx.cmd', 'npm', 'npm.cmd', 'npx', 'npx.cmd', 'pnpm', 'pnpm.cmd', 'yarn', 'yarn.cmd']);
+function quote_windows_arg(value) {
+    if (value && !/[\s"&^|<>()[\]]/.test(value))
+        return value;
+    const escaped = value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/g, '$1$1');
+    return `"${escaped}"`;
+}
+function resolve_stdio_command(command, args) {
+    if (process.platform !== 'win32')
+        return { command, args };
+    const command_name = basename(command).toLowerCase();
+    if (!WINDOWS_SHELL_COMMANDS.has(command_name) &&
+        !/\.(?:bat|cmd)$/i.test(command_name)) {
+        return { command, args };
+    }
+    const command_line = [command, ...args].map(quote_windows_arg).join(' ');
+    return {
+        command: process.env.ComSpec || 'cmd.exe',
+        args: ['/d', '/s', '/c', `"${command_line}"`],
+        windowsVerbatimArguments: true,
+    };
+}
 export class McpClient {
     #proc = null;
     #config;
@@ -46,10 +69,15 @@ export class McpClient {
         this.#clear_pending();
     }
     async #connect_stdio() {
-        const { name, command, args = [], env, } = this.#config;
-        this.#proc = spawn(command, args, {
+        const { name, command, args = [], env, cwd, } = this.#config;
+        const resolved = resolve_stdio_command(command, args);
+        this.#proc = spawn(resolved.command, resolved.args, {
             stdio: ['pipe', 'pipe', 'pipe'],
             env: create_child_process_env(env),
+            ...(cwd ? { cwd } : {}),
+            ...(resolved.windowsVerbatimArguments
+                ? { windowsVerbatimArguments: true }
+                : {}),
         });
         this.#proc.on('error', (error) => {
             this.#close_stdio(new Error(`MCP server ${name} failed to start: ${error.message}`));

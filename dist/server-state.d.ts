@@ -5,6 +5,7 @@ export declare const DISABLED = "\u25CB disabled";
 export interface ServerState {
     config: McpServerConfig;
     client?: McpClient;
+    oauth_access_token?: string;
     tool_names: string[];
     enabled: boolean;
     status: 'disconnected' | 'connecting' | 'connected' | 'failed';

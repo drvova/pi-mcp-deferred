@@ -18,6 +18,7 @@ export interface McpStdioServerConfig extends McpServerTrustMetadata {
     command: string;
     args?: string[];
     env?: Record<string, string>;
+    cwd?: string;
 }
 export interface McpOAuthOptions {
     authorization_endpoint?: string;

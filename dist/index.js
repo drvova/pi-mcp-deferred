@@ -6,7 +6,7 @@ import { load_mcp_config, set_mcp_server_enabled } from './config.js';
 import { create_mcp_tool_registration_metadata, create_stub_tool_metadata } from './metadata.js';
 import { handle_mcp_profile } from './profile-actions.js';
 import { get_project_mcp_config_load_decision } from './project-config-loader.js';
-import { clear_token, ensure_oauth_config, is_oauth_enabled, run_interactive_login, } from './oauth.js';
+import { clear_token, ensure_oauth_config, is_oauth_enabled, load_token, run_interactive_login, } from './oauth.js';
 import { format_mcp_tool_result } from './result.js';
 import { clear_mcp_idle_timer, create_server_states, get_mcp_idle_timeout_ms, is_server_promoted, mark_server_promoted, unmark_server_promoted, remove_server_tools_from_active, report_mcp_failure, set_connect_feedback, summarize_mcp_tool_params, update_mcp_status, } from './server-state.js';
 import { format_mcp_server_list, show_mcp_home_modal, show_mcp_server_modal, show_mcp_text_modal, show_oauth_server_picker, } from './ui.js';
@@ -70,6 +70,7 @@ export default async function mcp(pi) {
         await state.connect_promise?.catch(() => { });
         await state.client?.disconnect().catch(() => { });
         state.client = undefined;
+        state.oauth_access_token = undefined;
         if (state.status !== 'failed')
             state.status = 'disconnected';
         if (ctx)
@@ -90,6 +91,20 @@ export default async function mcp(pi) {
             void disconnect_server(state, ctx);
         }, timeout_ms);
         state.idle_timer.unref?.();
+    };
+    const ensure_server_connection = async (state, ctx) => {
+        if (state.config.transport === 'http' && state.client) {
+            const stored = load_token(state.config.name);
+            const token_changed = stored?.access_token !== state.oauth_access_token;
+            const token_expired = typeof stored?.expires_at === 'number' &&
+                Date.now() >= stored.expires_at;
+            if (token_changed || token_expired) {
+                await disconnect_server(state, ctx);
+            }
+        }
+        if (!state.client || state.status !== 'connected') {
+            await connect_server(state, ctx);
+        }
     };
     // Register a server's tools as stubs (deferred) or full schemas (eager).
     // Shared by connect (native tier) and mcp__expand (loading a catalogued server).
@@ -117,9 +132,7 @@ export default async function mcp(pi) {
                         try {
                             // Connect BEFORE promoting: promote needs a live client,
                             // and a warm-cache stub is registered without connecting.
-                            if (!state.client || state.status !== 'connected') {
-                                await connect_server(state);
-                            }
+                            await ensure_server_connection(state);
                             if (was_stub) {
                                 await promote_server_tools(state);
                             }
@@ -163,9 +176,7 @@ export default async function mcp(pi) {
                         clear_mcp_idle_timer(state);
                         state.active_call_count += 1;
                         try {
-                            if (!state.client || state.status !== 'connected') {
-                                await connect_server(state);
-                            }
+                            await ensure_server_connection(state);
                             const result = (await state.client.callTool(mcp_tool.name, params));
                             const formatted = format_mcp_tool_result(result, {
                                 tool_name,
@@ -227,6 +238,9 @@ export default async function mcp(pi) {
                     await client.connect();
                 }
                 state.client = client;
+                state.oauth_access_token = state.config.transport === 'http'
+                    ? load_token(state.config.name)?.access_token
+                    : undefined;
                 const mcp_tools = await client.listTools();
                 state.discovered_tools = mcp_tools;
                 write_cached_tools(state.config, mcp_tools);
@@ -264,6 +278,7 @@ export default async function mcp(pi) {
                 state.error =
                     error instanceof Error ? error.message : String(error);
                 state.client = undefined;
+                state.oauth_access_token = undefined;
                 await client.disconnect().catch(() => { });
                 report_mcp_failure(state, ctx);
                 throw error;
@@ -294,9 +309,7 @@ export default async function mcp(pi) {
                     clear_mcp_idle_timer(state);
                     state.active_call_count += 1;
                     try {
-                        if (!state.client || state.status !== 'connected') {
-                            await connect_server(state);
-                        }
+                        await ensure_server_connection(state);
                         const result = (await state.client.callTool(mcp_tool.name, params));
                         const formatted = format_mcp_tool_result(result, {
                             tool_name,

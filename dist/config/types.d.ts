@@ -65,6 +65,7 @@ export type RawMcpServerEntry = {
     command?: unknown;
     args?: unknown;
     env?: unknown;
+    cwd?: unknown;
     url?: unknown;
     headers?: unknown;
     oauth?: unknown;

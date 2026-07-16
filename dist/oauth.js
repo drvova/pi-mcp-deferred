@@ -206,13 +206,15 @@ function open_browser(url) {
     const command = process.platform === 'darwin'
         ? 'open'
         : process.platform === 'win32'
-            ? 'start'
+            ? 'rundll32.exe'
             : 'xdg-open';
+    const args = process.platform === 'win32'
+        ? ['url.dll,FileProtocolHandler', url]
+        : [url];
     try {
-        const child = spawn(command, [url], {
+        const child = spawn(command, args, {
             stdio: 'ignore',
             detached: true,
-            shell: process.platform === 'win32',
         });
         child.on('error', () => { });
         child.unref();
