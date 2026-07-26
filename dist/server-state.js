@@ -95,9 +95,14 @@ export function count_pending_enabled_servers(servers) {
 }
 export function report_mcp_failure(state, ctx) {
     const message = `MCP server failed (${state.config.name}): ${state.error}`;
-    if (ctx?.hasUI) {
-        ctx.ui.notify(message, 'warning');
-        return;
+    try {
+        if (ctx?.hasUI) {
+            ctx.ui.notify(message, 'warning');
+            return;
+        }
+    }
+    catch {
+        // ctx may be stale after session replacement
     }
     console.error(message);
 }
@@ -110,8 +115,13 @@ function themed(ctx, color, text) {
     }
 }
 export function update_mcp_status(ctx, servers) {
-    if (!ctx.hasUI)
+    try {
+        if (!ctx.hasUI)
+            return;
+    }
+    catch {
         return;
+    }
     if (servers.size === 0) {
         ctx.ui.setStatus('mcp', undefined);
         return;
@@ -129,7 +139,12 @@ export function update_mcp_status(ctx, servers) {
     ctx.ui.setStatus('mcp', themed(ctx, 'dim', fragments.join(' · ')));
 }
 export function set_connect_feedback(ctx, pending_server_count) {
-    if (!ctx.hasUI) {
+    try {
+        if (!ctx.hasUI) {
+            return () => { };
+        }
+    }
+    catch {
         return () => { };
     }
     const label = pending_server_count === 1

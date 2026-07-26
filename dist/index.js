@@ -817,7 +817,12 @@ export default async function mcp(pi) {
         await Promise.allSettled(Array.from(servers.values()).map(async (server) => {
             await disconnect_server(server, ctx);
         }));
-        ctx.ui.setStatus('mcp', undefined);
+        try {
+            ctx.ui.setStatus('mcp', undefined);
+        }
+        catch {
+            // ctx stale after session replacement
+        }
     });
 }
 //# sourceMappingURL=index.js.map
