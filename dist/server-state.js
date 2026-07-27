@@ -5,6 +5,7 @@ export function create_server_states(configs) {
         config.name,
         {
             config,
+            tool_prefix: `mcp__${config.name}__`,
             tool_names: [],
             enabled: config.disabled !== true,
             status: 'disconnected',
@@ -25,6 +26,11 @@ export function unmark_server_promoted(state) {
 export function remove_server_tools_from_active(pi, tool_names) {
     const tool_set = new Set(tool_names);
     pi.setActiveTools(pi.getActiveTools().filter((tool) => !tool_set.has(tool)));
+}
+export function add_server_tools_to_active(pi, tool_names) {
+    const active = new Set(pi.getActiveTools());
+    for (const name of tool_names) active.add(name);
+    pi.setActiveTools([...active]);
 }
 const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 export function get_mcp_idle_timeout_ms(state) {

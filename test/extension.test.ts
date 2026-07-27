@@ -47,6 +47,7 @@ vi.mock('../dist/project-config-loader.js', () => ({
 // Mock catalog-cache
 vi.mock('../dist/catalog-cache.js', () => ({
   read_cached_tools: vi.fn().mockReturnValue(null),
+  read_cached_tools_batch: vi.fn().mockReturnValue(new Map()),
   write_cached_tools: vi.fn(),
 }));
 

@@ -1,14 +1,14 @@
 import { defineTool, } from '@earendil-works/pi-coding-agent';
 import { handle_mcp_backup, handle_mcp_restore, } from './backup-restore.js';
 import { McpClient } from './client.js';
-import { read_cached_tools, write_cached_tools } from './catalog-cache.js';
+import { read_cached_tools, read_cached_tools_batch, write_cached_tools } from './catalog-cache.js';
 import { load_mcp_config, set_mcp_server_enabled } from './config.js';
 import { create_mcp_tool_registration_metadata, create_stub_tool_metadata } from './metadata.js';
 import { handle_mcp_profile } from './profile-actions.js';
 import { get_project_mcp_config_load_decision } from './project-config-loader.js';
 import { clear_token, ensure_oauth_config, is_oauth_enabled, load_token, run_interactive_login, } from './oauth.js';
 import { format_mcp_tool_result } from './result.js';
-import { clear_mcp_idle_timer, count_pending_enabled_servers, create_server_states, get_mcp_idle_timeout_ms, is_server_promoted, mark_server_promoted, unmark_server_promoted, remove_server_tools_from_active, report_mcp_failure, set_connect_feedback, summarize_mcp_tool_params, update_mcp_status, } from './server-state.js';
+import { add_server_tools_to_active, clear_mcp_idle_timer, count_pending_enabled_servers, create_server_states, get_mcp_idle_timeout_ms, is_server_promoted, mark_server_promoted, unmark_server_promoted, remove_server_tools_from_active, report_mcp_failure, set_connect_feedback, summarize_mcp_tool_params, update_mcp_status, } from './server-state.js';
 import { format_mcp_server_list, show_mcp_home_modal, show_mcp_server_modal, show_mcp_text_modal, show_oauth_server_picker, } from './ui.js';
 export function should_wait_for_mcp_connections(event) {
     const selected_tools = event.systemPromptOptions?.selectedTools;
@@ -36,7 +36,6 @@ export default async function mcp(pi) {
     const registered_tool_names = new Set();
     // Tell Pi the tool set changed so re-registered schemas take effect immediately
     // (promote/expand/re-defer), not just at the next implicit rebuild.
-    const refresh_tools = () => pi.refreshTools?.();
     // Proactive re-defer threshold: reclaim schema tokens once context usage crosses
     // this fraction, before compaction is forced. MY_PI_MCP_REDEFER_PCT overrides.
     const redefer_pct = () => {
@@ -112,7 +111,7 @@ export default async function mcp(pi) {
         const tool_names = [];
         const deferred = should_defer_mcp(state.config);
         for (const mcp_tool of mcp_tools) {
-            const tool_name = `mcp__${state.config.name}__${mcp_tool.name}`;
+            const tool_name = `${state.tool_prefix}${mcp_tool.name}`;
             tool_names.push(tool_name);
             if (registered_tool_names.has(tool_name))
                 continue;
@@ -254,10 +253,12 @@ export default async function mcp(pi) {
                     // Catalog tier: register no stubs; the server is listed in mcp__expand.
                     // (catalogued===false means it was already loaded — don't re-catalog.)
                     state.catalogued = true;
-                    state.tool_names = mcp_tools.map((t) => `mcp__${state.config.name}__${t.name}`);
+                    catalog_dirty = true;
+                    state.tool_names = mcp_tools.map((t) => `${state.tool_prefix}${t.name}`);
                 }
                 else {
                     state.catalogued = false;
+                    catalog_dirty = true;
                     register_server_tools(state, mcp_tools);
                 }
                 state.status = 'connected';
@@ -269,13 +270,8 @@ export default async function mcp(pi) {
                 else if (!state.catalogued &&
                     (!process.env.MY_PI_RUNTIME_MODE ||
                         process.env.MY_PI_RUNTIME_MODE === 'interactive')) {
-                    const active = pi.getActiveTools();
-                    pi.setActiveTools([
-                        ...new Set([...active, ...state.tool_names]),
-                    ]);
+                    add_server_tools_to_active(pi, state.tool_names);
                 }
-                if (!state.catalogued)
-                    refresh_tools();
             }
             catch (error) {
                 state.status = 'failed';
@@ -301,7 +297,7 @@ export default async function mcp(pi) {
         mark_server_promoted(state);
         const mcp_tools = await state.client.listTools();
         for (const mcp_tool of mcp_tools) {
-            const tool_name = `mcp__${state.config.name}__${mcp_tool.name}`;
+            const tool_name = `${state.tool_prefix}${mcp_tool.name}`;
             const metadata = create_mcp_tool_registration_metadata(state.config, mcp_tool);
             // Re-register with full schema — overwrites the stub
             pi.registerTool(defineTool({
@@ -334,7 +330,6 @@ export default async function mcp(pi) {
                 },
             }));
         }
-        refresh_tools();
     };
     // Load a catalogued server: register its tools (stub tier) from cached metadata,
     // move it out of the catalog, and activate the tools. No reconnect required.
@@ -343,13 +338,12 @@ export default async function mcp(pi) {
             return 0;
         register_server_tools(state, state.discovered_tools);
         state.catalogued = false;
+        catalog_dirty = true;
         if (state.enabled &&
             (!process.env.MY_PI_RUNTIME_MODE ||
                 process.env.MY_PI_RUNTIME_MODE === 'interactive')) {
-            const active = pi.getActiveTools();
-            pi.setActiveTools([...new Set([...active, ...state.tool_names])]);
+            add_server_tools_to_active(pi, state.tool_names);
         }
-        refresh_tools();
         if (ctx)
             update_mcp_status(ctx, servers);
         return state.tool_names.length;
@@ -372,11 +366,17 @@ export default async function mcp(pi) {
         return `${base}\n\nAvailable (not yet loaded):\n${lines.join('\n')}`;
     };
     let expand_sig = '';
-    const catalog_signature = () => Array.from(servers.values())
-        .filter((s) => s.catalogued && s.enabled)
-        .map((s) => s.config.name)
-        .sort()
-        .join(',');
+    let catalog_dirty = true;
+    const catalog_signature = () => {
+        if (!catalog_dirty) return expand_sig;
+        const names = [];
+        for (const s of servers.values()) {
+            if (s.catalogued && s.enabled) names.push(s.config.name);
+        }
+        expand_sig = names.sort().join(',');
+        catalog_dirty = false;
+        return expand_sig;
+    };
     const register_expand_tool = (ctx) => {
         expand_sig = catalog_signature();
         pi.registerTool(defineTool({
@@ -457,34 +457,38 @@ export default async function mcp(pi) {
                 };
             },
         }));
-        refresh_tools();
     };
     // Build the catalog from disk cache at startup WITHOUT connecting. Servers
     // spawn only when a tool is actually used, so subagent sessions that inherit
     // this extension don't leak an MCP process pool per child.
     const hydrate_from_cache = (ctx) => {
+        // Read the cache file once for all servers instead of N times.
+        const cache_configs = Array.from(servers.values())
+            .filter((s) => s.enabled && s.status !== 'connected' && !s.discovered_tools)
+            .map((s) => s.config);
+        const cache = read_cached_tools_batch(cache_configs);
         for (const state of servers.values()) {
             if (!state.enabled || state.status === 'connected' || state.discovered_tools)
                 continue;
-            const cached = read_cached_tools(state.config);
+            const cached = cache.get(state.config.name);
             if (should_catalog_mcp(state.config)) {
                 state.catalogued = true;
+                catalog_dirty = true;
                 if (cached) {
                     state.discovered_tools = cached;
-                    state.tool_names = cached.map((t) => `mcp__${state.config.name}__${t.name}`);
+                    state.tool_names = cached.map((t) => `${state.tool_prefix}${t.name}`);
                 }
             }
             else if (cached) {
                 // Pinned native server, warm cache: register from cache, no spawn.
                 state.discovered_tools = cached;
                 state.catalogued = false;
+                catalog_dirty = true;
                 register_server_tools(state, cached);
                 if (!process.env.MY_PI_RUNTIME_MODE ||
                     process.env.MY_PI_RUNTIME_MODE === 'interactive') {
-                    const active = pi.getActiveTools();
-                    pi.setActiveTools([...new Set([...active, ...state.tool_names])]);
+                    add_server_tools_to_active(pi, state.tool_names);
                 }
-                refresh_tools();
             }
             else {
                 // Pinned native server, cold cache: connect once to populate it.
@@ -516,7 +520,6 @@ export default async function mcp(pi) {
             reclaimed += 1;
         }
         if (reclaimed) {
-            refresh_tools();
             if (ctx)
                 update_mcp_status(ctx, servers);
         }
@@ -571,10 +574,7 @@ export default async function mcp(pi) {
             return server;
         }
         if (server.status === 'connected') {
-            const active = pi.getActiveTools();
-            pi.setActiveTools([
-                ...new Set([...active, ...server.tool_names]),
-            ]);
+            add_server_tools_to_active(pi, server.tool_names);
             update_mcp_status(ctx, servers);
             return server;
         }
@@ -617,9 +617,14 @@ export default async function mcp(pi) {
         const selected_server_names = new Set((event.systemPromptOptions?.selectedTools ?? [])
             .map((tool) => /^mcp__(.+)__(.+)$/.exec(tool)?.[1])
             .filter((name) => Boolean(name)));
-        const target_servers = Array.from(servers.values()).filter((state) => state.enabled &&
-            (selected_server_names.size === 0 ||
-                selected_server_names.has(state.config.name)));
+        const target_servers = [];
+        for (const state of servers.values()) {
+            if (state.enabled &&
+                (selected_server_names.size === 0 ||
+                    selected_server_names.has(state.config.name))) {
+                target_servers.push(state);
+            }
+        }
         const pending = count_pending_enabled_servers(target_servers);
         if (pending === 0) {
             update_mcp_status(ctx, servers);
