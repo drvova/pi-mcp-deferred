@@ -17,6 +17,16 @@ export async function format_mcp_tool_result(result, options = {}) {
             const hashes = lineHashes(formatted.text);
             formatted.text = fmtRegion(hashes, lines);
             formatted.details.hashline = true;
+            formatted.details.hash_anchors = true;
+            const fop = formatted.details.full_output_path;
+            if (fop && !fop.startsWith('context:')) {
+                const hlPath = get_hashline_path(fop);
+                writeFileSync(hlPath, formatted.text, { encoding: 'utf8', mode: 0o600 });
+                formatted.details.edit_path = hlPath;
+            }
+            else if (fop) {
+                formatted.details.edit_path = fop;
+            }
         }
         catch {
             // Hashline init failed or content incompatible — return plain text.
@@ -138,6 +148,9 @@ function write_full_output(text, tmp_dir = tmpdir()) {
     const path = join(tmp_dir, `my-pi-mcp-output-${process.pid}-${Date.now()}-${randomUUID()}.txt`);
     writeFileSync(path, text, { encoding: 'utf8', mode: 0o600 });
     return path;
+}
+export function get_hashline_path(text_path) {
+    return text_path.replace(/\.[^.]+$/, '.hl');
 }
 function format_bytes(bytes) {
     if (bytes < 1024)
