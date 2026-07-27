@@ -399,13 +399,13 @@ export default async function mcp(pi) {
         catalog_dirty = false;
         return expand_sig;
     };
-    const register_expand_tool = (ctx) => {
+    const register_expand_tool = async (ctx) => {
         expand_sig = catalog_signature();
-        cached_expand_desc = build_expand_description();
+        cached_expand_desc = await build_expand_description();
         pi.registerTool(defineTool({
             name: 'mcp__expand',
             label: 'mcp: expand server schemas',
-            description: cached_expand_desc ?? build_expand_description(),
+            description: cached_expand_desc,
             promptSnippet: 'mcp__expand — load a catalogued MCP server\'s tools before calling them',
             promptGuidelines: [
                 'MCP servers are catalogued to save context: their tools are listed in the mcp__expand description but are not callable until loaded.',
@@ -443,7 +443,7 @@ export default async function mcp(pi) {
                             promoted += 1;
                         }
                     }
-                    register_expand_tool(ctx);
+                    await register_expand_tool(ctx);
                     return {
                         content: [{ type: 'text', text: await tryHashline(`Loaded ${loaded} catalogued tool(s); promoted ${promoted} server(s). Full schemas load on first call.`) }],
                     };
@@ -459,7 +459,7 @@ export default async function mcp(pi) {
                     if (!state.discovered_tools)
                         await connect_server(state, ctx);
                     const n = load_catalog_server(state, ctx);
-                    register_expand_tool(ctx);
+                    await register_expand_tool(ctx);
                     return {
                         content: [{ type: 'text', text: await tryHashline(`Loaded "${target}": ${n} tool(s) now callable. Call one to load its full schema.`) }],
                     };
@@ -616,13 +616,13 @@ export default async function mcp(pi) {
         // connecting. Servers spawn only on first use, so subagent sessions that
         // inherit this extension don't leak a process pool per child.
         hydrate_from_cache(ctx);
-        register_expand_tool(ctx);
+        await register_expand_tool(ctx);
     });
     pi.on('before_agent_start', async (event, ctx) => {
         await ensure_servers(ctx.cwd, ctx);
         // Refresh the catalog listing for servers that connected since last turn.
         if (catalog_signature() !== expand_sig)
-            register_expand_tool(ctx);
+            await register_expand_tool(ctx);
         // Proactive re-defer: reclaim schema tokens once context usage is high,
         // before it forces a destructive compaction. Backstopped by Phase 4.
         const usage = ctx.getContextUsage?.();
