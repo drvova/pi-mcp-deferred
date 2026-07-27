@@ -80,4 +80,64 @@ export async function hashlineAnnotateAsync(content) {
     return hashlineAnnotate(content);
 }
 
+const SKIP_HASH = '___';
+
+function matchesAny(line, patterns) {
+    for (let i = 0; i < patterns.length; i++) {
+        const pat = patterns[i];
+        if (typeof pat === 'string' ? line.includes(pat) : pat.test(line)) return true;
+    }
+    return false;
+}
+
+function redactContent(line, patterns, replacement) {
+    let result = line;
+    for (let i = 0; i < patterns.length; i++) {
+        const pat = patterns[i];
+        if (typeof pat === 'string') {
+            result = result.replaceAll(pat, replacement);
+        } else {
+            result = result.replaceAll(pat, replacement);
+        }
+    }
+    return result;
+}
+
+export function hashlineAnnotateSelective(content, { skipPatterns = [] } = {}) {
+    if (!_h32) throw new Error('hashline not initialized — call initHashline() first');
+    const lines = content.split('\n');
+    const used = new Set();
+    used.add(SKIP_HASH);
+    const hashes = new Array(lines.length);
+    for (let i = 0; i < lines.length; i++) {
+        hashes[i] = matchesAny(lines[i], skipPatterns) ? SKIP_HASH : nextUniqueHash(canon(lines[i]), used);
+    }
+    return fmtRegion(hashes, lines);
+}
+
+export function hashlineAnnotateRedacted(content, { redactPatterns = [], replacement = '***' } = {}) {
+    if (!_h32) throw new Error('hashline not initialized — call initHashline() first');
+    const lines = content.split('\n');
+    const used = new Set();
+    used.add(SKIP_HASH);
+    const hashes = new Array(lines.length);
+    const redacted = new Array(lines.length);
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (matchesAny(line, redactPatterns)) {
+            hashes[i] = SKIP_HASH;
+            redacted[i] = redactContent(line, redactPatterns, replacement);
+        } else {
+            hashes[i] = nextUniqueHash(canon(line), used);
+            redacted[i] = line;
+        }
+    }
+    return [fmtRegion(hashes, redacted), redacted.join('\n')];
+}
+
+export function computeHashes(content) {
+    if (!_h32) throw new Error('hashline not initialized — call initHashline() first');
+    return lineHashes(content);
+}
+
 export const HASHLINE_SEP = '│';
