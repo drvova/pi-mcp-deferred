@@ -93,13 +93,19 @@ function matchesAny(line, patterns) {
 function redactContent(line, patterns, replacement) {
     let result = line;
     for (let i = 0; i < patterns.length; i++) {
-        result = result.replaceAll(patterns[i], replacement);
+        const p = patterns[i];
+        if (p instanceof RegExp) {
+            const flags = p.flags.includes('g') ? p.flags : p.flags + 'g';
+            result = result.replace(new RegExp(p.source, flags), replacement);
+        } else {
+            result = result.replaceAll(p, replacement);
+        }
     }
     return result;
 }
 
-export function hashlineAnnotateSelective(content, { skipPatterns = [] } = {}) {
-    if (!_h32) throw new Error('hashline not initialized — call initHashline() first');
+export async function hashlineAnnotateSelective(content, { skipPatterns = [] } = {}) {
+    await initHashline();
     const lines = content.split('\n');
     const used = new Set();
     used.add(SKIP_HASH);
@@ -110,8 +116,8 @@ export function hashlineAnnotateSelective(content, { skipPatterns = [] } = {}) {
     return fmtRegion(hashes, lines);
 }
 
-export function hashlineAnnotateRedacted(content, { redactPatterns = [], replacement = '***' } = {}) {
-    if (!_h32) throw new Error('hashline not initialized — call initHashline() first');
+export async function hashlineAnnotateRedacted(content, { redactPatterns = [], replacement = '***' } = {}) {
+    await initHashline();
     const lines = content.split('\n');
     const used = new Set();
     used.add(SKIP_HASH);
@@ -130,8 +136,8 @@ export function hashlineAnnotateRedacted(content, { redactPatterns = [], replace
     return [fmtRegion(hashes, redacted), redacted.join('\n')];
 }
 
-export function computeHashes(content) {
-    if (!_h32) throw new Error('hashline not initialized — call initHashline() first');
+export async function computeHashes(content) {
+    await initHashline();
     return lineHashes(content);
 }
 

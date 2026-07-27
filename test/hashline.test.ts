@@ -146,17 +146,17 @@ describe('hashline', () => {
 // ── Optional exports (may not exist yet) ───────────────────────────────────
 
 describe('selective / redacted / computeHashes (optional)', () => {
-  it('hashlineAnnotateSelective: skips matching lines', () => {
+  it('hashlineAnnotateSelective: skips matching lines', async () => {
     if (!hashlineAnnotateSelective) return;
-    const result = hashlineAnnotateSelective(MULTI_LINE, { skipPatterns: [/line two/] });
+    const result = await hashlineAnnotateSelective(MULTI_LINE, { skipPatterns: [/line two/] });
     const lines = result.split('\n');
     // Line 1 (index 1) should be skipped -> ___ hash
-    expect(lines[1]).toMatch(/^___│/);
+    expect(lines[1]).toMatch(/^___\u2502/);
   });
 
-  it('hashlineAnnotateRedacted: redacts matching content', () => {
+  it('hashlineAnnotateRedacted: redacts matching content', async () => {
     if (!hashlineAnnotateRedacted) return;
-    const result = hashlineAnnotateRedacted(MULTI_LINE, { redactPatterns: [/line two/g] });
+    const result = await hashlineAnnotateRedacted(MULTI_LINE, { redactPatterns: [/line two/g] });
     // Returns [formatted, redactedText]
     expect(Array.isArray(result)).toBe(true);
     const [formatted, redactedText] = result;
@@ -165,9 +165,9 @@ describe('selective / redacted / computeHashes (optional)', () => {
     expect(redactedText).toContain('***');
   });
 
-  it('computeHashes: returns array without formatting', () => {
+  it('computeHashes: returns array without formatting', async () => {
     if (!computeHashes) return;
-    const hashes = computeHashes(MULTI_LINE);
+    const hashes = await computeHashes(MULTI_LINE);
     expect(Array.isArray(hashes)).toBe(true);
     expect(hashes).toHaveLength(3);
     for (const h of hashes) {

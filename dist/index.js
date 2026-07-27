@@ -8,6 +8,7 @@ import { handle_mcp_profile } from './profile-actions.js';
 import { get_project_mcp_config_load_decision } from './project-config-loader.js';
 import { clear_token, ensure_oauth_config, is_oauth_enabled, load_token, run_interactive_login, } from './oauth.js';
 import { format_mcp_tool_result } from './result.js';
+import { hashlineAnnotateAsync } from './hashline.js';
 import { add_server_tools_to_active, clear_mcp_idle_timer, count_pending_enabled_servers, create_server_states, get_mcp_idle_timeout_ms, is_server_promoted, mark_server_promoted, unmark_server_promoted, remove_server_tools_from_active, report_mcp_failure, set_connect_feedback, summarize_mcp_tool_params, update_mcp_status, } from './server-state.js';
 import { format_mcp_server_list, show_mcp_home_modal, show_mcp_server_modal, show_mcp_text_modal, show_oauth_server_picker, } from './ui.js';
 export function should_wait_for_mcp_connections(event) {
@@ -131,13 +132,13 @@ export default async function mcp(pi) {
                     : '';
                 return {
                     content: [{ type: 'text', text: prefix + formatted.text }],
-                    details: formatted.details,
+                    details: { ...formatted.details, edit_path: formatted.details.full_output_path },
                 };
             }
             catch (err) {
                 if (was_stub) {
                     return {
-                        content: [{ type: 'text', text: `Tool "${call_name}" was auto-promoted from server "${state.config.name}" but execution failed: ${err instanceof Error ? err.message : String(err)}. The full schema is now loaded \u2014 please retry with the correct parameters.` }],
+                        content: [{ type: 'text', text: await (async () => { const msg = `Tool "${call_name}" was auto-promoted from server "${state.config.name}" but execution failed: ${err instanceof Error ? err.message : String(err)}. The full schema is now loaded — please retry with the correct parameters.`; try { return await hashlineAnnotateAsync(msg); } catch { return msg; } })() }],
                     };
                 }
                 throw err;
@@ -311,7 +312,7 @@ export default async function mcp(pi) {
         return state.tool_names.length;
     };
     let cached_expand_desc = '';
-    const build_expand_description = () => {
+    const build_expand_description = async () => {
         const base = 'Load an MCP server\'s tools. Servers start "catalogued" (listed but not loaded) to save context. Call mcp__expand with a server name to register its tools, then call the tool you need. Pass "all" to load everything.';
         const cat = Array.from(servers.values()).filter((s) => s.catalogued && s.enabled);
         if (cat.length === 0)
@@ -326,7 +327,9 @@ export default async function mcp(pi) {
             const more = tools.length > 6 ? ', \u2026' : '';
             return `- ${s.config.name} (${tools.length}): ${sample}${more}`;
         });
-        cached_expand_desc = `${base}\n\nAvailable (not yet loaded):\n${lines.join('\n')}`;
+        const listText = lines.join('\n');
+        try { cached_expand_desc = `${base}\n\nAvailable (not yet loaded):\n${await hashlineAnnotateAsync(listText)}`; }
+        catch { cached_expand_desc = `${base}\n\nAvailable (not yet loaded):\n${listText}`; }
         return cached_expand_desc;
     };
     let expand_sig = '';
@@ -387,7 +390,7 @@ export default async function mcp(pi) {
                     }
                     register_expand_tool(ctx);
                     return {
-                        content: [{ type: 'text', text: `Loaded ${loaded} catalogued tool(s); promoted ${promoted} server(s). Full schemas load on first call.` }],
+                        content: [{ type: 'text', text: await (async () => { const msg = `Loaded ${loaded} catalogued tool(s); promoted ${promoted} server(s). Full schemas load on first call.`; try { return await hashlineAnnotateAsync(msg); } catch { return msg; } })() }],
                     };
                 }
                 const state = servers.get(target);
@@ -403,7 +406,7 @@ export default async function mcp(pi) {
                     const n = load_catalog_server(state, ctx);
                     register_expand_tool(ctx);
                     return {
-                        content: [{ type: 'text', text: `Loaded "${target}": ${n} tool(s) now callable. Call one to load its full schema.` }],
+                        content: [{ type: 'text', text: await (async () => { const msg = `Loaded "${target}": ${n} tool(s) now callable. Call one to load its full schema.`; try { return await hashlineAnnotateAsync(msg); } catch { return msg; } })() }],
                     };
                 }
                 if (state.status !== 'connected') {
@@ -418,7 +421,7 @@ export default async function mcp(pi) {
                 }
                 await promote_server_tools(state);
                 return {
-                    content: [{ type: 'text', text: `Expanded "${target}". ${state.tool_names.length} tools now have full schemas.` }],
+                    content: [{ type: 'text', text: await (async () => { const msg = `Expanded "${target}". ${state.tool_names.length} tools now have full schemas.`; try { return await hashlineAnnotateAsync(msg); } catch { return msg; } })() }],
                 };
             },
         }));
