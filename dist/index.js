@@ -8,7 +8,7 @@ import { handle_mcp_profile } from './profile-actions.js';
 import { get_project_mcp_config_load_decision } from './project-config-loader.js';
 import { clear_token, ensure_oauth_config, is_oauth_enabled, load_token, run_interactive_login, } from './oauth.js';
 import { format_mcp_tool_result } from './result.js';
-import { clear_mcp_idle_timer, create_server_states, get_mcp_idle_timeout_ms, is_server_promoted, mark_server_promoted, unmark_server_promoted, remove_server_tools_from_active, report_mcp_failure, set_connect_feedback, summarize_mcp_tool_params, update_mcp_status, } from './server-state.js';
+import { clear_mcp_idle_timer, count_pending_enabled_servers, create_server_states, get_mcp_idle_timeout_ms, is_server_promoted, mark_server_promoted, unmark_server_promoted, remove_server_tools_from_active, report_mcp_failure, set_connect_feedback, summarize_mcp_tool_params, update_mcp_status, } from './server-state.js';
 import { format_mcp_server_list, show_mcp_home_modal, show_mcp_server_modal, show_mcp_text_modal, show_oauth_server_picker, } from './ui.js';
 export function should_wait_for_mcp_connections(event) {
     const selected_tools = event.systemPromptOptions?.selectedTools;
@@ -625,7 +625,7 @@ export default async function mcp(pi) {
             update_mcp_status(ctx, servers);
             return event;
         }
-        const restore_feedback = set_connect_feedback(ctx, pending_server_count);
+        const restore_feedback = set_connect_feedback(ctx, pending);
         try {
             await Promise.allSettled(target_servers.map((state) => connect_server(state, ctx)));
             return event;

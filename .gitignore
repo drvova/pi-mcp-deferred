@@ -2,3 +2,4 @@ node_modules/
 package-lock.json
 *:Zone.Identifier
 bun.lock
+.pi/casefile.db
