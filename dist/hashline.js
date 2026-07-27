@@ -136,9 +136,43 @@ export async function hashlineAnnotateRedacted(content, { redactPatterns = [], r
     return [fmtRegion(hashes, redacted), redacted.join('\n')];
 }
 
+
 export async function computeHashes(content) {
     await initHashline();
     return lineHashes(content);
+}
+
+export async function diffHashes(oldContent, newContent) {
+    const oldHashes = await computeHashes(oldContent);
+    const newHashes = await computeHashes(newContent);
+    const oldLines = oldContent.split('\n');
+    const newLines = newContent.split('\n');
+    const changes = [];
+    const maxLen = Math.max(oldHashes.length, newHashes.length);
+    for (let i = 0; i < maxLen; i++) {
+        const oldH = oldHashes[i] ?? '';
+        const newH = newHashes[i] ?? '';
+        if (oldH !== newH) {
+            changes.push({
+                line: i + 1,
+                oldHash: oldH || null,
+                newHash: newH || null,
+                oldLine: oldLines[i] ?? null,
+                newLine: newLines[i] ?? null,
+                kind: !oldH ? 'added' : !newH ? 'removed' : 'modified',
+            });
+        }
+    }
+    return changes;
+}
+
+export function validateHashes(content, hashes) {
+    const current = lineHashes(content);
+    if (current.length !== hashes.length) return false;
+    for (let i = 0; i < current.length; i++) {
+        if (current[i] !== hashes[i]) return false;
+    }
+    return true;
 }
 
 export const HASHLINE_SEP = '│';

@@ -406,7 +406,7 @@ export default async function mcp(pi) {
                 const state = servers.get(target);
                 if (!state) {
                     return {
-                        content: [{ type: 'text', text: `Unknown server: ${target}. Available: ${Array.from(servers.keys()).join(', ')}` }],
+                        content: [{ type: 'text', text: await tryHashline(`Unknown server: ${target}. Available: ${Array.from(servers.keys()).join(', ')}`) }],
                     };
                 }
                 if (state.catalogued) {
@@ -421,12 +421,12 @@ export default async function mcp(pi) {
                 }
                 if (state.status !== 'connected') {
                     return {
-                        content: [{ type: 'text', text: `Server "${target}" is not connected (status: ${state.status}).` }],
+                        content: [{ type: 'text', text: await tryHashline(`Server "${target}" is not connected (status: ${state.status}).`) }],
                     };
                 }
                 if (is_server_promoted(state)) {
                     return {
-                        content: [{ type: 'text', text: `Server "${target}" already loaded with full schemas.` }],
+                        content: [{ type: 'text', text: await tryHashline(`Server "${target}" already loaded with full schemas.`) }],
                     };
                 }
                 await promote_server_tools(state);
