@@ -1,4 +1,5 @@
 import { show_picker_modal, show_settings_modal, show_text_modal, } from '@spences10/pi-tui-modal';
+import { hashlineAnnotateAsync } from './hashline.js';
 import { format_oauth_status, is_oauth_enabled } from './oauth.js';
 import { DISABLED, ENABLED, format_server_status, format_server_target, } from './server-state.js';
 export async function show_oauth_server_picker(ctx, servers, action) {
@@ -22,7 +23,7 @@ export async function show_oauth_server_picker(ctx, servers, action) {
         footer: 'enter selects • esc cancel',
     });
 }
-export function format_mcp_server_list(servers) {
+export async function format_mcp_server_list(servers) {
     if (servers.size === 0)
         return 'No MCP servers configured';
     const lines = [];
@@ -32,7 +33,9 @@ export function format_mcp_server_list(servers) {
             : '';
         lines.push(`${sname} (${format_server_status(state)}) — ${state.tool_names.length} tools${trust_note}${state.error ? ` — ${state.error}` : ''}`);
     }
-    return lines.join('\n');
+    const text = lines.join('\n');
+    try { return await hashlineAnnotateAsync(text); }
+    catch { return text; }
 }
 export async function show_mcp_home_modal(ctx, servers) {
     return await show_picker_modal(ctx, {

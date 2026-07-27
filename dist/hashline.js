@@ -75,4 +75,9 @@ export function hashlineAnnotate(content) {
     return fmtRegion(hashes, lines);
 }
 
+export async function hashlineAnnotateAsync(content) {
+    await initHashline();
+    return hashlineAnnotate(content);
+}
+
 export const HASHLINE_SEP = '│';

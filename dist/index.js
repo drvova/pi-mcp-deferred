@@ -617,7 +617,7 @@ export default async function mcp(pi) {
         await handle_mcp_profile(ctx, sub === 'profiles' ? ['list', ...rest] : rest);
     };
     const mcp_list = async (ctx, servers) => {
-        const text = format_mcp_server_list(servers);
+        const text = await format_mcp_server_list(servers);
         update_mcp_status(ctx, servers);
         if (ctx.hasUI)
             await show_mcp_text_modal(ctx, 'MCP servers', text);
@@ -707,7 +707,7 @@ export default async function mcp(pi) {
                     }
                     else if (selected === 'list') {
                         update_mcp_status(ctx, servers);
-                        await show_mcp_text_modal(ctx, 'MCP servers', format_mcp_server_list(servers));
+                        await show_mcp_text_modal(ctx, 'MCP servers', await format_mcp_server_list(servers));
                     }
                     else if (selected === 'backup') {
                         await handle_mcp_backup(ctx);

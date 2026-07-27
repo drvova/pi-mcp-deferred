@@ -1,6 +1,7 @@
 import { show_input_modal, show_picker_modal, } from '@spences10/pi-tui-modal';
 import { confirm_mcp_action, reload_after_config_change, } from './backup-restore.js';
 import { list_mcp_profiles, load_mcp_profile, save_mcp_profile, } from './config.js';
+import { hashlineAnnotateAsync } from './hashline.js';
 import { show_mcp_text_modal } from './ui.js';
 export async function load_profile(ctx, name, scope) {
     const confirmed = await confirm_mcp_action(ctx, {
@@ -53,12 +54,12 @@ export async function show_mcp_profile_actions(ctx, name) {
     if (action === 'load-project')
         return await load_profile(ctx, profile.name, 'project');
     if (action === 'inspect') {
-        await show_mcp_text_modal(ctx, `MCP profile: ${profile.name}`, [
+        await show_mcp_text_modal(ctx, `MCP profile: ${profile.name}`, await hashlineAnnotateAsync([
             `Name: ${profile.name}`,
             `Servers: ${profile.server_count}`,
             `Created: ${profile.created_at ?? 'unknown'}`,
             `Path: ${profile.path}`,
-        ].join('\n'));
+        ].join('\n')));
     }
     return false;
 }
