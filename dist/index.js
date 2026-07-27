@@ -136,7 +136,9 @@ export default async function mcp(pi) {
                             if (was_stub) {
                                 await promote_server_tools(state);
                             }
-                            const result = (await state.client.callTool(_original_tool_name, params));
+                            const client = state.client;
+                            if (!client) throw new Error('Server disconnected before tool call');
+                            const result = (await client.callTool(_original_tool_name, params));
                             const formatted = format_mcp_tool_result(result, {
                                 tool_name,
                                 input_summary: summarize_mcp_tool_params(params),
@@ -152,7 +154,7 @@ export default async function mcp(pi) {
                         catch (err) {
                             if (was_stub) {
                                 return {
-                                    content: [{ type: 'text', text: `Tool "${_original_tool_name}" was auto-promoted from server "${state.config.name}" but execution failed: ${err.message}. The full schema is now loaded — please retry with the correct parameters.` }],
+                                    content: [{ type: 'text', text: `Tool "${_original_tool_name}" was auto-promoted from server "${state.config.name}" but execution failed: ${err instanceof Error ? err.message : String(err)}. The full schema is now loaded \u2014 please retry with the correct parameters.` }],
                                 };
                             }
                             throw err;
@@ -177,7 +179,9 @@ export default async function mcp(pi) {
                         state.active_call_count += 1;
                         try {
                             await ensure_server_connection(state);
-                            const result = (await state.client.callTool(mcp_tool.name, params));
+                            const client = state.client;
+                            if (!client) throw new Error('Server disconnected before tool call');
+                            const result = (await client.callTool(mcp_tool.name, params));
                             const formatted = format_mcp_tool_result(result, {
                                 tool_name,
                                 input_summary: summarize_mcp_tool_params(params),
@@ -310,7 +314,9 @@ export default async function mcp(pi) {
                     state.active_call_count += 1;
                     try {
                         await ensure_server_connection(state);
-                        const result = (await state.client.callTool(mcp_tool.name, params));
+                        const client = state.client;
+                        if (!client) throw new Error('Server disconnected before tool call');
+                        const result = (await client.callTool(mcp_tool.name, params));
                         const formatted = format_mcp_tool_result(result, {
                             tool_name,
                             input_summary: summarize_mcp_tool_params(params),
@@ -482,7 +488,7 @@ export default async function mcp(pi) {
             }
             else {
                 // Pinned native server, cold cache: connect once to populate it.
-                void connect_server(state, ctx);
+                connect_server(state, ctx).catch(() => {});
             }
         }
         if (ctx)
@@ -505,6 +511,8 @@ export default async function mcp(pi) {
                 registered_tool_names.delete(name);
             unmark_server_promoted(state);
             register_server_tools(state, state.discovered_tools);
+            // Re-schedule idle disconnect so the server doesn't stay connected forever.
+            schedule_idle_disconnect(state, ctx);
             reclaimed += 1;
         }
         if (reclaimed) {
@@ -577,7 +585,7 @@ export default async function mcp(pi) {
         update_mcp_status(ctx, servers);
         // Discover at startup: connect to register stubs. Context is deferred via
         // compact schemas (Phase 1), not by deferring the connection itself.
-        void connect_server(server, ctx);
+        connect_server(server, ctx).catch(() => {});
         return server;
     };
     pi.on('session_start', async (_event, ctx) => {
@@ -607,13 +615,13 @@ export default async function mcp(pi) {
             return event;
         }
         const selected_server_names = new Set((event.systemPromptOptions?.selectedTools ?? [])
-            .map((tool) => /^mcp__(.+)__[^_]+$/.exec(tool)?.[1])
+            .map((tool) => /^mcp__(.+)__(.+)$/.exec(tool)?.[1])
             .filter((name) => Boolean(name)));
         const target_servers = Array.from(servers.values()).filter((state) => state.enabled &&
             (selected_server_names.size === 0 ||
                 selected_server_names.has(state.config.name)));
-        const pending_server_count = target_servers.filter((state) => state.status !== 'connected').length;
-        if (pending_server_count === 0) {
+        const pending = count_pending_enabled_servers(target_servers);
+        if (pending === 0) {
             update_mcp_status(ctx, servers);
             return event;
         }

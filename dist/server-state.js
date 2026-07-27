@@ -118,25 +118,25 @@ export function update_mcp_status(ctx, servers) {
     try {
         if (!ctx.hasUI)
             return;
+        if (servers.size === 0) {
+            ctx.ui.setStatus('mcp', undefined);
+            return;
+        }
+        const states = Array.from(servers.values());
+        const enabled = states.filter((state) => state.enabled).length;
+        const connected = states.filter((state) => state.enabled && state.status === 'connected').length;
+        const connecting = states.filter((state) => state.enabled && state.status === 'connecting').length;
+        const failed = states.filter((state) => state.enabled && state.status === 'failed').length;
+        const fragments = [`MCP ${connected}/${enabled} connected`];
+        if (connecting > 0)
+            fragments.push(`${connecting} connecting`);
+        if (failed > 0)
+            fragments.push(`${failed} failed`);
+        ctx.ui.setStatus('mcp', themed(ctx, 'dim', fragments.join(' · ')));
     }
     catch {
-        return;
+        // ctx may be stale after session replacement
     }
-    if (servers.size === 0) {
-        ctx.ui.setStatus('mcp', undefined);
-        return;
-    }
-    const states = Array.from(servers.values());
-    const enabled = states.filter((state) => state.enabled).length;
-    const connected = states.filter((state) => state.enabled && state.status === 'connected').length;
-    const connecting = states.filter((state) => state.enabled && state.status === 'connecting').length;
-    const failed = states.filter((state) => state.enabled && state.status === 'failed').length;
-    const fragments = [`MCP ${connected}/${enabled} connected`];
-    if (connecting > 0)
-        fragments.push(`${connecting} connecting`);
-    if (failed > 0)
-        fragments.push(`${failed} failed`);
-    ctx.ui.setStatus('mcp', themed(ctx, 'dim', fragments.join(' · ')));
 }
 export function set_connect_feedback(ctx, pending_server_count) {
     try {
