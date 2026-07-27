@@ -93,12 +93,7 @@ function matchesAny(line, patterns) {
 function redactContent(line, patterns, replacement) {
     let result = line;
     for (let i = 0; i < patterns.length; i++) {
-        const pat = patterns[i];
-        if (typeof pat === 'string') {
-            result = result.replaceAll(pat, replacement);
-        } else {
-            result = result.replaceAll(pat, replacement);
-        }
+        result = result.replaceAll(patterns[i], replacement);
     }
     return result;
 }
