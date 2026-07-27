@@ -367,7 +367,7 @@ export default async function mcp(pi) {
         return state.tool_names.length;
     };
     let cached_expand_desc = '';
-    const build_expand_description = async () => {
+    const build_expand_description = () => {
         const base = 'Load an MCP server\'s tools. Servers start "catalogued" (listed but not loaded) to save context. Call mcp__expand with a server name to register its tools, then call the tool you need. Pass "all" to load everything.';
         const cat = Array.from(servers.values()).filter((s) => s.catalogued && s.enabled);
         if (cat.length === 0)
@@ -382,9 +382,7 @@ export default async function mcp(pi) {
             const more = tools.length > 6 ? ', \u2026' : '';
             return `- ${s.config.name} (${tools.length}): ${sample}${more}`;
         });
-        const listText = lines.join('\n');
-        try { cached_expand_desc = `${base}\n\nAvailable (not yet loaded):\n${await hashlineAnnotateAsync(listText)}`; }
-        catch { cached_expand_desc = `${base}\n\nAvailable (not yet loaded):\n${listText}`; }
+        cached_expand_desc = `${base}\n\nAvailable (not yet loaded):\n${lines.join('\n')}`;
         return cached_expand_desc;
     };
     let expand_sig = '';
@@ -399,9 +397,9 @@ export default async function mcp(pi) {
         catalog_dirty = false;
         return expand_sig;
     };
-    const register_expand_tool = async (ctx) => {
+    const register_expand_tool = (ctx) => {
         expand_sig = catalog_signature();
-        cached_expand_desc = await build_expand_description();
+        cached_expand_desc = build_expand_description();
         pi.registerTool(defineTool({
             name: 'mcp__expand',
             label: 'mcp: expand server schemas',
@@ -443,7 +441,7 @@ export default async function mcp(pi) {
                             promoted += 1;
                         }
                     }
-                    await register_expand_tool(ctx);
+                    register_expand_tool(ctx);
                     return {
                         content: [{ type: 'text', text: await tryHashline(`Loaded ${loaded} catalogued tool(s); promoted ${promoted} server(s). Full schemas load on first call.`) }],
                     };
@@ -459,7 +457,7 @@ export default async function mcp(pi) {
                     if (!state.discovered_tools)
                         await connect_server(state, ctx);
                     const n = load_catalog_server(state, ctx);
-                    await register_expand_tool(ctx);
+                    register_expand_tool(ctx);
                     return {
                         content: [{ type: 'text', text: await tryHashline(`Loaded "${target}": ${n} tool(s) now callable. Call one to load its full schema.`) }],
                     };
@@ -616,13 +614,13 @@ export default async function mcp(pi) {
         // connecting. Servers spawn only on first use, so subagent sessions that
         // inherit this extension don't leak a process pool per child.
         hydrate_from_cache(ctx);
-        await register_expand_tool(ctx);
+        register_expand_tool(ctx);
     });
     pi.on('before_agent_start', async (event, ctx) => {
         await ensure_servers(ctx.cwd, ctx);
         // Refresh the catalog listing for servers that connected since last turn.
         if (catalog_signature() !== expand_sig)
-            await register_expand_tool(ctx);
+            register_expand_tool(ctx);
         // Proactive re-defer: reclaim schema tokens once context usage is high,
         // before it forces a destructive compaction. Backstopped by Phase 4.
         const usage = ctx.getContextUsage?.();
