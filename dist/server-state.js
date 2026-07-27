@@ -11,6 +11,8 @@ export function create_server_states(configs) {
             status: 'disconnected',
             active_call_count: 0,
             promoted: false,
+            result_cache: new Map(),
+            last_result_hashes: null,
         },
     ]));
 }
@@ -173,3 +175,43 @@ export function set_connect_feedback(ctx, pending_server_count) {
     };
 }
 //# sourceMappingURL=server-state.js.map
+
+// Result cache: keyed by "tool_name:param_hash"
+const PARAM_HASH_MAX_LEN = 200;
+export function get_cached_result(state, tool_name, params) {
+    if (!state.result_cache) return null;
+    const key = cache_key(tool_name, params);
+    return state.result_cache.get(key) ?? null;
+}
+export function set_cached_result(state, tool_name, params, formatted) {
+    if (!state.result_cache) return;
+    // Limit cache size to 100 entries per server
+    if (state.result_cache.size > 100) {
+        const first = state.result_cache.keys().next().value;
+        state.result_cache.delete(first);
+    }
+    state.result_cache.set(cache_key(tool_name, params), {
+        formatted,
+        hashes: formatted.details?.hashline ? extract_hashes(formatted.text) : null,
+        timestamp: Date.now(),
+    });
+}
+export function clear_result_cache(state) {
+    state.result_cache?.clear();
+    state.last_result_hashes = null;
+}
+function cache_key(tool_name, params) {
+    const param_str = JSON.stringify(params ?? {});
+    return `${tool_name}:${param_str.length > PARAM_HASH_MAX_LEN ? param_str.slice(0, PARAM_HASH_MAX_LEN) : param_str}`;
+}
+function extract_hashes(text) {
+    const lines = text.split('\n');
+    const hashes = [];
+    for (const line of lines) {
+        if (line.length >= 3 && line[3] === '\u2502') {
+            hashes.push(line.slice(0, 3));
+        }
+    }
+    return hashes.length > 0 ? hashes : null;
+}
+

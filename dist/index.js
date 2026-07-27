@@ -9,10 +9,23 @@ import { get_project_mcp_config_load_decision } from './project-config-loader.js
 import { clear_token, ensure_oauth_config, is_oauth_enabled, load_token, run_interactive_login, } from './oauth.js';
 import { format_mcp_tool_result } from './result.js';
 import { hashlineAnnotateAsync } from './hashline.js';
-import { add_server_tools_to_active, clear_mcp_idle_timer, count_pending_enabled_servers, create_server_states, get_mcp_idle_timeout_ms, is_server_promoted, mark_server_promoted, unmark_server_promoted, remove_server_tools_from_active, report_mcp_failure, set_connect_feedback, summarize_mcp_tool_params, update_mcp_status, } from './server-state.js';
+import { add_server_tools_to_active, clear_mcp_idle_timer, clear_result_cache, count_pending_enabled_servers, create_server_states, get_cached_result, get_mcp_idle_timeout_ms, is_server_promoted, mark_server_promoted, set_cached_result, unmark_server_promoted, remove_server_tools_from_active, report_mcp_failure, set_connect_feedback, summarize_mcp_tool_params, update_mcp_status, } from './server-state.js';
 import { format_mcp_server_list, show_mcp_home_modal, show_mcp_server_modal, show_mcp_text_modal, show_oauth_server_picker, } from './ui.js';
 
 // Hashline-annotate a message, falling back to plain text on failure.
+
+// Extract hash anchors from hashline-annotated text.
+function extract_hashes_from_text(text) {
+    const lines = text.split('\n');
+    const hashes = [];
+    for (const line of lines) {
+        if (line.length >= 4 && line[3] === '\u2502') {
+            hashes.push(line.slice(0, 3));
+        }
+    }
+    return hashes.length > 0 ? hashes : null;
+}
+
 async function tryHashline(msg) {
     try { return await hashlineAnnotateAsync(msg); } catch { return msg; }
 }
@@ -136,6 +149,38 @@ export default async function mcp(pi) {
                     tool_name,
                     input_summary: summarize_mcp_tool_params(params),
                 });
+                // Check cache for change detection
+                const cached = get_cached_result(state, tool_name, params);
+                if (cached && formatted.details?.hashline && cached.hashes) {
+                    const new_hashes = extract_hashes_from_text(formatted.text);
+                    if (new_hashes && cached.hashes.length === new_hashes.length) {
+                        let changed = false;
+                        for (let i = 0; i < cached.hashes.length; i++) {
+                            if (cached.hashes[i] !== new_hashes[i]) { changed = true; break; }
+                        }
+                        if (!changed) {
+                            return {
+                                content: [{ type: 'text', text: `[Unchanged since last call — ${Math.round((Date.now() - cached.timestamp) / 1000)}s ago]` }],
+                                details: { cached: true, unchanged: true, age_ms: Date.now() - cached.timestamp },
+                            };
+                        }
+                        // Changed — show diff summary
+                        const { diffHashes } = await import('./hashline.js');
+                        const old_text = cached.formatted.text;
+                        const new_text = formatted.text;
+                        const diffs = await diffHashes(old_text, new_text);
+                        if (diffs.length > 0 && diffs.length < 20) {
+                            const summary = diffs.map(d => `L${d.line}: ${d.kind}`).join(', ');
+                            const prefix_diff = `[Changed: ${summary}]`;
+                            set_cached_result(state, tool_name, params, formatted);
+                            return {
+                                content: [{ type: 'text', text: prefix_diff + '\n' + formatted.text }],
+                                details: { ...formatted.details, edit_path: formatted.details.full_output_path, diff_summary: summary },
+                            };
+                        }
+                    }
+                }
+                set_cached_result(state, tool_name, params, formatted);
                 const prefix = was_stub
                     ? `[Promoted "${state.config.name}" on first call] `
                     : '';
