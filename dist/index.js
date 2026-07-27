@@ -14,11 +14,13 @@ export function should_wait_for_mcp_connections(event) {
     const selected_tools = event.systemPromptOptions?.selectedTools;
     return (selected_tools?.some((tool) => tool.startsWith('mcp__')) ?? false);
 }
+const CATALOG_ENABLED = process.env.MY_PI_MCP_CATALOG !== '0';
+const DEFERRED_ENABLED = process.env.MY_PI_MCP_DEFERRED !== '0';
 function should_defer_mcp(server_config) {
     // Per-server override takes priority
     if (server_config.deferred !== undefined) return server_config.deferred;
     // Env var override: MY_PI_MCP_DEFERRED=0 to disable, default ON
-    if (process.env.MY_PI_MCP_DEFERRED === '0') return false;
+    if (!DEFERRED_ENABLED) return false;
     return true;
 }
 function should_catalog_mcp(server_config) {
@@ -26,7 +28,7 @@ function should_catalog_mcp(server_config) {
     // Per-server override wins (catalog:false pins a server to native stubs).
     if (server_config.catalog !== undefined) return server_config.catalog;
     // Env kill-switch: MY_PI_MCP_CATALOG=0 reverts to all-native stubs.
-    if (process.env.MY_PI_MCP_CATALOG === '0') return false;
+    if (!CATALOG_ENABLED) return false;
     return true;
 }
 export default async function mcp(pi) {
@@ -38,6 +40,9 @@ export default async function mcp(pi) {
     // (promote/expand/re-defer), not just at the next implicit rebuild.
     // Proactive re-defer threshold: reclaim schema tokens once context usage crosses
     // this fraction, before compaction is forced. MY_PI_MCP_REDEFER_PCT overrides.
+    // Cache env vars at init — these don't change during a session.
+    const IS_INTERACTIVE = !process.env.MY_PI_RUNTIME_MODE ||
+        process.env.MY_PI_RUNTIME_MODE === 'interactive';
     const redefer_pct = () => {
         const v = Number(process.env.MY_PI_MCP_REDEFER_PCT);
         return Number.isFinite(v) && v > 0 && v <= 1 ? v : 0.75;
@@ -87,7 +92,7 @@ export default async function mcp(pi) {
                 schedule_idle_disconnect(state, ctx);
                 return;
             }
-            void disconnect_server(state, ctx);
+            disconnect_server(state, ctx).catch((e) => console.warn('mcp: idle disconnect failed', e));
         }, timeout_ms);
         state.idle_timer.unref?.();
     };
@@ -105,6 +110,46 @@ export default async function mcp(pi) {
             await connect_server(state, ctx);
         }
     };
+    const create_tool_execute = (state, tool_name, call_name, autoPromote) => {
+        return async (_id, params) => {
+            const was_stub = autoPromote ? !is_server_promoted(state) : false;
+            clear_mcp_idle_timer(state);
+            state.active_call_count += 1;
+            try {
+                await ensure_server_connection(state);
+                if (was_stub)
+                    await autoPromote(state);
+                const client = state.client;
+                if (!client) throw new Error('Server disconnected before tool call');
+                const result = (await client.callTool(call_name, params));
+                const formatted = format_mcp_tool_result(result, {
+                    tool_name,
+                    input_summary: summarize_mcp_tool_params(params),
+                });
+                const prefix = was_stub
+                    ? `[Promoted "${state.config.name}" on first call] `
+                    : '';
+                return {
+                    content: [{ type: 'text', text: prefix + formatted.text }],
+                    details: formatted.details,
+                };
+            }
+            catch (err) {
+                if (was_stub) {
+                    return {
+                        content: [{ type: 'text', text: `Tool "${call_name}" was auto-promoted from server "${state.config.name}" but execution failed: ${err instanceof Error ? err.message : String(err)}. The full schema is now loaded \u2014 please retry with the correct parameters.` }],
+                    };
+                }
+                throw err;
+            }
+            finally {
+                state.active_call_count -= 1;
+                state.last_used_at = Date.now();
+                schedule_idle_disconnect(state, undefined);
+            }
+        };
+    };
+
     // Register a server's tools as stubs (deferred) or full schemas (eager).
     // Shared by connect (native tier) and mcp__expand (loading a catalogued server).
     const register_server_tools = (state, mcp_tools) => {
@@ -118,52 +163,12 @@ export default async function mcp(pi) {
             registered_tool_names.add(tool_name);
             if (deferred) {
                 const stub = create_stub_tool_metadata(state.config.name, mcp_tool.name, mcp_tool.description, mcp_tool.inputSchema);
-                const _original_tool_name = mcp_tool.name;
                 pi.registerTool(defineTool({
                     name: tool_name,
                     label: stub.label,
                     description: stub.description,
                     parameters: stub.parameters,
-                    execute: async (_id, params) => {
-                        const was_stub = !is_server_promoted(state);
-                        clear_mcp_idle_timer(state);
-                        state.active_call_count += 1;
-                        try {
-                            // Connect BEFORE promoting: promote needs a live client,
-                            // and a warm-cache stub is registered without connecting.
-                            await ensure_server_connection(state);
-                            if (was_stub) {
-                                await promote_server_tools(state);
-                            }
-                            const client = state.client;
-                            if (!client) throw new Error('Server disconnected before tool call');
-                            const result = (await client.callTool(_original_tool_name, params));
-                            const formatted = format_mcp_tool_result(result, {
-                                tool_name,
-                                input_summary: summarize_mcp_tool_params(params),
-                            });
-                            const prefix = was_stub
-                                ? `[Promoted "${state.config.name}" on first call] `
-                                : '';
-                            return {
-                                content: [{ type: 'text', text: prefix + formatted.text }],
-                                details: formatted.details,
-                            };
-                        }
-                        catch (err) {
-                            if (was_stub) {
-                                return {
-                                    content: [{ type: 'text', text: `Tool "${_original_tool_name}" was auto-promoted from server "${state.config.name}" but execution failed: ${err instanceof Error ? err.message : String(err)}. The full schema is now loaded \u2014 please retry with the correct parameters.` }],
-                                };
-                            }
-                            throw err;
-                        }
-                        finally {
-                            state.active_call_count -= 1;
-                            state.last_used_at = Date.now();
-                            schedule_idle_disconnect(state, undefined);
-                        }
-                    },
+                    execute: create_tool_execute(state, tool_name, mcp_tool.name, promote_server_tools),
                 }));
             }
             else {
@@ -173,29 +178,7 @@ export default async function mcp(pi) {
                     label: metadata.label,
                     description: metadata.description,
                     parameters: metadata.parameters,
-                    execute: async (_id, params) => {
-                        clear_mcp_idle_timer(state);
-                        state.active_call_count += 1;
-                        try {
-                            await ensure_server_connection(state);
-                            const client = state.client;
-                            if (!client) throw new Error('Server disconnected before tool call');
-                            const result = (await client.callTool(mcp_tool.name, params));
-                            const formatted = format_mcp_tool_result(result, {
-                                tool_name,
-                                input_summary: summarize_mcp_tool_params(params),
-                            });
-                            return {
-                                content: [{ type: 'text', text: formatted.text }],
-                                details: formatted.details,
-                            };
-                        }
-                        finally {
-                            state.active_call_count -= 1;
-                            state.last_used_at = Date.now();
-                            schedule_idle_disconnect(state, undefined);
-                        }
-                    },
+                    execute: create_tool_execute(state, tool_name, mcp_tool.name),
                 }));
             }
         }
@@ -268,8 +251,7 @@ export default async function mcp(pi) {
                     remove_server_tools_from_active(pi, state.tool_names);
                 }
                 else if (!state.catalogued &&
-                    (!process.env.MY_PI_RUNTIME_MODE ||
-                        process.env.MY_PI_RUNTIME_MODE === 'interactive')) {
+                    (IS_INTERACTIVE)) {
                     add_server_tools_to_active(pi, state.tool_names);
                 }
             }
@@ -277,6 +259,9 @@ export default async function mcp(pi) {
                 state.status = 'failed';
                 state.error =
                     error instanceof Error ? error.message : String(error);
+                if (error instanceof Error && error.cause) {
+                    state.error += ` (cause: ${error.cause instanceof Error ? error.cause.message : String(error.cause)})`;
+                }
                 state.client = undefined;
                 state.oauth_access_token = undefined;
                 await client.disconnect().catch(() => { });
@@ -305,29 +290,7 @@ export default async function mcp(pi) {
                 label: metadata.label,
                 description: metadata.description,
                 parameters: metadata.parameters,
-                execute: async (_id, params) => {
-                    clear_mcp_idle_timer(state);
-                    state.active_call_count += 1;
-                    try {
-                        await ensure_server_connection(state);
-                        const client = state.client;
-                        if (!client) throw new Error('Server disconnected before tool call');
-                        const result = (await client.callTool(mcp_tool.name, params));
-                        const formatted = format_mcp_tool_result(result, {
-                            tool_name,
-                            input_summary: summarize_mcp_tool_params(params),
-                        });
-                        return {
-                            content: [{ type: 'text', text: formatted.text }],
-                            details: formatted.details,
-                        };
-                    }
-                    finally {
-                        state.active_call_count -= 1;
-                        state.last_used_at = Date.now();
-                        schedule_idle_disconnect(state, undefined);
-                    }
-                },
+                execute: create_tool_execute(state, tool_name, mcp_tool.name),
             }));
         }
     };
@@ -340,14 +303,14 @@ export default async function mcp(pi) {
         state.catalogued = false;
         catalog_dirty = true;
         if (state.enabled &&
-            (!process.env.MY_PI_RUNTIME_MODE ||
-                process.env.MY_PI_RUNTIME_MODE === 'interactive')) {
+            (IS_INTERACTIVE)) {
             add_server_tools_to_active(pi, state.tool_names);
         }
         if (ctx)
             update_mcp_status(ctx, servers);
         return state.tool_names.length;
     };
+    let cached_expand_desc = '';
     const build_expand_description = () => {
         const base = 'Load an MCP server\'s tools. Servers start "catalogued" (listed but not loaded) to save context. Call mcp__expand with a server name to register its tools, then call the tool you need. Pass "all" to load everything.';
         const cat = Array.from(servers.values()).filter((s) => s.catalogued && s.enabled);
@@ -363,7 +326,8 @@ export default async function mcp(pi) {
             const more = tools.length > 6 ? ', \u2026' : '';
             return `- ${s.config.name} (${tools.length}): ${sample}${more}`;
         });
-        return `${base}\n\nAvailable (not yet loaded):\n${lines.join('\n')}`;
+        cached_expand_desc = `${base}\n\nAvailable (not yet loaded):\n${lines.join('\n')}`;
+        return cached_expand_desc;
     };
     let expand_sig = '';
     let catalog_dirty = true;
@@ -379,10 +343,11 @@ export default async function mcp(pi) {
     };
     const register_expand_tool = (ctx) => {
         expand_sig = catalog_signature();
+        cached_expand_desc = build_expand_description();
         pi.registerTool(defineTool({
             name: 'mcp__expand',
             label: 'mcp: expand server schemas',
-            description: build_expand_description(),
+            description: cached_expand_desc ?? build_expand_description(),
             promptSnippet: 'mcp__expand — load a catalogued MCP server\'s tools before calling them',
             promptGuidelines: [
                 'MCP servers are catalogued to save context: their tools are listed in the mcp__expand description but are not callable until loaded.',
@@ -485,14 +450,13 @@ export default async function mcp(pi) {
                 state.catalogued = false;
                 catalog_dirty = true;
                 register_server_tools(state, cached);
-                if (!process.env.MY_PI_RUNTIME_MODE ||
-                    process.env.MY_PI_RUNTIME_MODE === 'interactive') {
+                if (IS_INTERACTIVE) {
                     add_server_tools_to_active(pi, state.tool_names);
                 }
             }
             else {
                 // Pinned native server, cold cache: connect once to populate it.
-                connect_server(state, ctx).catch(() => {});
+                connect_server(state, ctx).catch((e) => console.warn('mcp: background connect failed', e));
             }
         }
         if (ctx)
@@ -569,7 +533,7 @@ export default async function mcp(pi) {
         set_mcp_server_enabled(ctx.cwd, name, enabled);
         if (!enabled) {
             remove_server_tools_from_active(pi, server.tool_names);
-            void disconnect_server(server, ctx);
+            disconnect_server(server, ctx).catch((e) => console.warn('mcp: disable disconnect failed', e));
             update_mcp_status(ctx, servers);
             return server;
         }
@@ -585,7 +549,7 @@ export default async function mcp(pi) {
         update_mcp_status(ctx, servers);
         // Discover at startup: connect to register stubs. Context is deferred via
         // compact schemas (Phase 1), not by deferring the connection itself.
-        connect_server(server, ctx).catch(() => {});
+        connect_server(server, ctx).catch((e) => console.warn('mcp: enable connect failed', e));
         return server;
     };
     pi.on('session_start', async (_event, ctx) => {
@@ -640,6 +604,57 @@ export default async function mcp(pi) {
             update_mcp_status(ctx, servers);
         }
     });
+
+    const mcp_manage = async (ctx, servers, set_server_enabled) => {
+        if (await show_mcp_server_modal(ctx, servers, set_server_enabled))
+            return true;
+        ctx.ui.notify('MCP modal requires interactive mode', 'warning');
+        return false;
+    };
+    const mcp_backup = async (ctx) => { await handle_mcp_backup(ctx); };
+    const mcp_restore = async (ctx, args) => { await handle_mcp_restore(ctx, args); };
+    const mcp_profiles = async (ctx, sub, rest) => {
+        await handle_mcp_profile(ctx, sub === 'profiles' ? ['list', ...rest] : rest);
+    };
+    const mcp_list = async (ctx, servers) => {
+        const text = format_mcp_server_list(servers);
+        update_mcp_status(ctx, servers);
+        if (ctx.hasUI)
+            await show_mcp_text_modal(ctx, 'MCP servers', text);
+        else
+            ctx.ui.notify(text);
+    };
+    const mcp_connect = async (ctx, servers, name, connect_server) => {
+        const targets = name && name !== 'all'
+            ? [servers.get(name)].filter((server) => Boolean(server))
+            : Array.from(servers.values()).filter((server) => server.enabled);
+        if (targets.length === 0) {
+            ctx.ui.notify(name
+                ? `Unknown server: ${name}`
+                : 'No enabled MCP servers', 'warning');
+            return;
+        }
+        await Promise.allSettled(targets.map((server) => connect_server(server, ctx)));
+        ctx.ui.notify(`Connected ${targets.length} MCP server${targets.length === 1 ? '' : 's'}`);
+    };
+    const mcp_enable = async (ctx, servers, name, set_server_enabled) => {
+        const server = servers.get(name);
+        if (!server) { ctx.ui.notify(`Unknown server: ${name}`, 'warning'); return; }
+        if (server.enabled && server.status !== 'failed') { ctx.ui.notify(`${name} already enabled`); return; }
+        set_server_enabled(name, true, ctx);
+        ctx.ui.notify(server.status === 'connected'
+            ? `Enabled ${name}`
+            : `Enabled ${name}; use /mcp connect ${name} to connect now`);
+    };
+    const mcp_disable = async (ctx, servers, name, set_server_enabled) => {
+        const server = servers.get(name);
+        if (!server) { ctx.ui.notify(`Unknown server: ${name}`, 'warning'); return; }
+        if (!server.enabled) { ctx.ui.notify(`${name} already disabled`); return; }
+        set_server_enabled(name, false, ctx);
+        ctx.ui.notify(`Disabled ${name}`);
+    };
+    const mcp_login = async (name, ctx) => { await oauth_login(name, ctx); };
+    const mcp_logout = async (name, ctx) => { await oauth_logout(name, ctx); };
     pi.registerCommand('mcp', {
         description: 'Manage MCP servers (modal, list, enable, disable, connect, login, logout, backup, restore, profiles)',
         getArgumentCompletions: (prefix) => {
@@ -726,83 +741,45 @@ export default async function mcp(pi) {
             switch (sub || 'manage') {
                 case 'manage':
                 case 'toggle': {
-                    if (await show_mcp_server_modal(ctx, servers, set_server_enabled))
+                    if (await mcp_manage(ctx, servers, set_server_enabled))
                         return;
-                    ctx.ui.notify('MCP modal requires interactive mode', 'warning');
                     break;
                 }
                 case 'backup': {
-                    await handle_mcp_backup(ctx);
+                    await mcp_backup(ctx);
                     break;
                 }
                 case 'restore': {
-                    await handle_mcp_restore(ctx, rest.join(' ') || undefined);
+                    await mcp_restore(ctx, rest.join(' ') || undefined);
                     break;
                 }
                 case 'profile':
                 case 'profiles': {
-                    await handle_mcp_profile(ctx, sub === 'profiles' ? ['list', ...rest] : rest);
+                    await mcp_profiles(ctx, sub, rest);
                     break;
                 }
                 case 'list': {
-                    const text = format_mcp_server_list(servers);
-                    update_mcp_status(ctx, servers);
-                    if (ctx.hasUI)
-                        await show_mcp_text_modal(ctx, 'MCP servers', text);
-                    else
-                        ctx.ui.notify(text);
+                    await mcp_list(ctx, servers);
                     break;
                 }
                 case 'connect': {
-                    const targets = name && name !== 'all'
-                        ? [servers.get(name)].filter((server) => Boolean(server))
-                        : Array.from(servers.values()).filter((server) => server.enabled);
-                    if (targets.length === 0) {
-                        ctx.ui.notify(name
-                            ? `Unknown server: ${name}`
-                            : 'No enabled MCP servers', 'warning');
-                        return;
-                    }
-                    await Promise.allSettled(targets.map((server) => connect_server(server, ctx)));
-                    ctx.ui.notify(`Connected ${targets.length} MCP server${targets.length === 1 ? '' : 's'}`);
+                    await mcp_connect(ctx, servers, name, connect_server);
                     break;
                 }
                 case 'enable': {
-                    const server = servers.get(name);
-                    if (!server) {
-                        ctx.ui.notify(`Unknown server: ${name}`, 'warning');
-                        return;
-                    }
-                    if (server.enabled && server.status !== 'failed') {
-                        ctx.ui.notify(`${name} already enabled`);
-                        return;
-                    }
-                    set_server_enabled(name, true, ctx);
-                    ctx.ui.notify(server.status === 'connected'
-                        ? `Enabled ${name}`
-                        : `Enabled ${name}; use /mcp connect ${name} to connect now`);
+                    await mcp_enable(ctx, servers, name, set_server_enabled);
                     break;
                 }
                 case 'disable': {
-                    const server = servers.get(name);
-                    if (!server) {
-                        ctx.ui.notify(`Unknown server: ${name}`, 'warning');
-                        return;
-                    }
-                    if (!server.enabled) {
-                        ctx.ui.notify(`${name} already disabled`);
-                        return;
-                    }
-                    set_server_enabled(name, false, ctx);
-                    ctx.ui.notify(`Disabled ${name}`);
+                    await mcp_disable(ctx, servers, name, set_server_enabled);
                     break;
                 }
                 case 'login': {
-                    await oauth_login(name, ctx);
+                    await mcp_login(name, ctx);
                     break;
                 }
                 case 'logout': {
-                    await oauth_logout(name, ctx);
+                    await mcp_logout(name, ctx);
                     break;
                 }
                 default:
