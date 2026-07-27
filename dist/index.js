@@ -122,7 +122,7 @@ export default async function mcp(pi) {
                 const client = state.client;
                 if (!client) throw new Error('Server disconnected before tool call');
                 const result = (await client.callTool(call_name, params));
-                const formatted = format_mcp_tool_result(result, {
+                const formatted = await format_mcp_tool_result(result, {
                     tool_name,
                     input_summary: summarize_mcp_tool_params(params),
                 });

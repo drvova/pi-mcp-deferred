@@ -33,11 +33,12 @@
     "access": "public"
   },
   "dependencies": {
-    "@spences10/pi-project-trust": "0.0.12",
     "@spences10/pi-child-env": "0.1.8",
     "@spences10/pi-context": "0.0.24",
+    "@spences10/pi-project-trust": "0.0.12",
     "@spences10/pi-settings": "0.0.0",
-    "@spences10/pi-tui-modal": "0.0.20"
+    "@spences10/pi-tui-modal": "0.0.20",
+    "xxhash-wasm": "^1.1.0"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "0.75.4",

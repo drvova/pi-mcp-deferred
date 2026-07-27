@@ -3,10 +3,26 @@ import { randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { initHashline, lineHashes, fmtRegion, } from './hashline.js';
 export const MCP_RESULT_MAX_BYTES = 50 * 1024;
 export const MCP_RESULT_MAX_LINES = 2_000;
-export function format_mcp_tool_result(result, options = {}) {
-    return truncate_mcp_tool_output(stringify_mcp_tool_result(result), options);
+export const hashlineReady = initHashline();
+export async function format_mcp_tool_result(result, options = {}) {
+    const text = stringify_mcp_tool_result(result);
+    const formatted = truncate_mcp_tool_output(text, options);
+    if (options.hashline !== false && formatted.text.includes('\n')) {
+        try {
+            await hashlineReady;
+            const lines = formatted.text.split('\n');
+            const hashes = lineHashes(formatted.text);
+            formatted.text = fmtRegion(hashes, lines);
+            formatted.details.hashline = true;
+        }
+        catch {
+            // Hashline init failed or content incompatible — return plain text.
+        }
+    }
+    return formatted;
 }
 export function stringify_mcp_tool_result(result) {
     if (result &&

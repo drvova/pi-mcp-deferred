@@ -206,27 +206,42 @@ describe('result', () => {
   });
 
   describe('format_mcp_tool_result', () => {
-    it('stringifies and truncates in one step', () => {
+    it('stringifies and truncates in one step', async () => {
       mockGetContextLimits.mockReturnValue({ max_bytes: 10_000, max_lines: 100 });
       const input = {
         content: [{ type: 'text', text: 'combined output' }],
       };
-      const result = format_mcp_tool_result(input);
+      const result = await format_mcp_tool_result(input);
       expect(result.text).toBe('combined output');
     });
 
-    it('passes options through to truncate', () => {
+    it('passes options through to truncate', async () => {
       mockGetContextLimits.mockReturnValue({ max_bytes: 10_000, max_lines: 100 });
       // stringify_mcp_tool_result('ok') => '"ok"' (4 bytes), so max_bytes=3 triggers truncation
-      const result = format_mcp_tool_result('ok', { max_bytes: 3, tmp_dir: tmpDir });
+      const result = await format_mcp_tool_result('ok', { max_bytes: 3, tmp_dir: tmpDir });
       expect(result.details.truncated).toBe(true);
     });
 
-    it('handles string input directly', () => {
+    it('handles string input directly', async () => {
       mockGetContextLimits.mockReturnValue({ max_bytes: 10_000, max_lines: 100 });
       // stringify_mcp_tool_result('plain text') => '"plain text"' via JSON.stringify
-      const result = format_mcp_tool_result('plain text');
+      const result = await format_mcp_tool_result('plain text');
       expect(result.text).toBe('"plain text"');
+    });
+
+    it('annotates multi-line results with hashline anchors', async () => {
+      mockGetContextLimits.mockReturnValue({ max_bytes: 10_000, max_lines: 100 });
+      const input = {
+        content: [{ type: 'text', text: JSON.stringify({ servers: [{ name: 'github' }] }, null, 2) }],
+      };
+      const result = await format_mcp_tool_result(input);
+      // Each line should start with a 3-char hash followed by the separator
+      const lines = result.text.split('\n');
+      expect(lines.length).toBeGreaterThan(1);
+      for (const line of lines) {
+        expect(line).toMatch(/^[A-Za-z0-9\-_]{3}\u2502/);
+      }
+      expect(result.details.hashline).toBe(true);
     });
   });
 });
