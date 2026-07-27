@@ -49,6 +49,10 @@ export default async function mcp(pi) {
         return Number.isFinite(v) && v > 0 && v <= 1 ? v : 0.75;
     };
     const ensure_servers = async (cwd, ctx) => {
+        if (!cwd) {
+            console.warn('mcp: ensure_servers called with undefined cwd, skipping');
+            return;
+        }
         if (initialized_cwd !== null)
             return;
         if (initialize_promise) {
@@ -93,7 +97,7 @@ export default async function mcp(pi) {
                 schedule_idle_disconnect(state, ctx);
                 return;
             }
-            disconnect_server(state, ctx).catch((e) => console.warn('mcp: idle disconnect failed', e));
+            disconnect_server(state, ctx).catch((e) => report_mcp_failure(state, e, ctx));
         }, timeout_ms);
         state.idle_timer.unref?.();
     };
@@ -282,6 +286,7 @@ export default async function mcp(pi) {
         if (is_server_promoted(state)) return;
         mark_server_promoted(state);
         const mcp_tools = await state.client.listTools();
+        if (!state.client) throw new Error(`Server "${state.config.name}" disconnected during promote`);
         for (const mcp_tool of mcp_tools) {
             const tool_name = `${state.tool_prefix}${mcp_tool.name}`;
             const metadata = create_mcp_tool_registration_metadata(state.config, mcp_tool);
@@ -459,7 +464,7 @@ export default async function mcp(pi) {
             }
             else {
                 // Pinned native server, cold cache: connect once to populate it.
-                connect_server(state, ctx).catch((e) => console.warn('mcp: background connect failed', e));
+                connect_server(state, ctx).catch((e) => report_mcp_failure(state, e, ctx));
             }
         }
         if (ctx)
@@ -536,7 +541,7 @@ export default async function mcp(pi) {
         set_mcp_server_enabled(ctx.cwd, name, enabled);
         if (!enabled) {
             remove_server_tools_from_active(pi, server.tool_names);
-            disconnect_server(server, ctx).catch((e) => console.warn('mcp: disable disconnect failed', e));
+            disconnect_server(server, ctx).catch((e) => report_mcp_failure(server, e, ctx));
             update_mcp_status(ctx, servers);
             return server;
         }
@@ -552,7 +557,7 @@ export default async function mcp(pi) {
         update_mcp_status(ctx, servers);
         // Discover at startup: connect to register stubs. Context is deferred via
         // compact schemas (Phase 1), not by deferring the connection itself.
-        connect_server(server, ctx).catch((e) => console.warn('mcp: enable connect failed', e));
+        connect_server(server, ctx).catch((e) => report_mcp_failure(server, e, ctx));
         return server;
     };
     pi.on('session_start', async (_event, ctx) => {
