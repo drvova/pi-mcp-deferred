@@ -11,6 +11,11 @@ import { format_mcp_tool_result } from './result.js';
 import { hashlineAnnotateAsync } from './hashline.js';
 import { add_server_tools_to_active, clear_mcp_idle_timer, count_pending_enabled_servers, create_server_states, get_mcp_idle_timeout_ms, is_server_promoted, mark_server_promoted, unmark_server_promoted, remove_server_tools_from_active, report_mcp_failure, set_connect_feedback, summarize_mcp_tool_params, update_mcp_status, } from './server-state.js';
 import { format_mcp_server_list, show_mcp_home_modal, show_mcp_server_modal, show_mcp_text_modal, show_oauth_server_picker, } from './ui.js';
+
+// Hashline-annotate a message, falling back to plain text on failure.
+async function tryHashline(msg) {
+    try { return await hashlineAnnotateAsync(msg); } catch { return msg; }
+}
 export function should_wait_for_mcp_connections(event) {
     const selected_tools = event.systemPromptOptions?.selectedTools;
     return (selected_tools?.some((tool) => tool.startsWith('mcp__')) ?? false);
@@ -142,7 +147,7 @@ export default async function mcp(pi) {
             catch (err) {
                 if (was_stub) {
                     return {
-                        content: [{ type: 'text', text: await (async () => { const msg = `Tool "${call_name}" was auto-promoted from server "${state.config.name}" but execution failed: ${err instanceof Error ? err.message : String(err)}. The full schema is now loaded — please retry with the correct parameters.`; try { return await hashlineAnnotateAsync(msg); } catch { return msg; } })() }],
+                        content: [{ type: 'text', text: await tryHashline(`Tool "${call_name}" was auto-promoted from server "${state.config.name}" but execution failed: ${err instanceof Error ? err.message : String(err)}. The full schema is now loaded — please retry with the correct parameters.`) }],
                     };
                 }
                 throw err;
@@ -395,7 +400,7 @@ export default async function mcp(pi) {
                     }
                     register_expand_tool(ctx);
                     return {
-                        content: [{ type: 'text', text: await (async () => { const msg = `Loaded ${loaded} catalogued tool(s); promoted ${promoted} server(s). Full schemas load on first call.`; try { return await hashlineAnnotateAsync(msg); } catch { return msg; } })() }],
+                        content: [{ type: 'text', text: await tryHashline(`Loaded ${loaded} catalogued tool(s); promoted ${promoted} server(s). Full schemas load on first call.`) }],
                     };
                 }
                 const state = servers.get(target);
@@ -411,7 +416,7 @@ export default async function mcp(pi) {
                     const n = load_catalog_server(state, ctx);
                     register_expand_tool(ctx);
                     return {
-                        content: [{ type: 'text', text: await (async () => { const msg = `Loaded "${target}": ${n} tool(s) now callable. Call one to load its full schema.`; try { return await hashlineAnnotateAsync(msg); } catch { return msg; } })() }],
+                        content: [{ type: 'text', text: await tryHashline(`Loaded "${target}": ${n} tool(s) now callable. Call one to load its full schema.`) }],
                     };
                 }
                 if (state.status !== 'connected') {
@@ -426,7 +431,7 @@ export default async function mcp(pi) {
                 }
                 await promote_server_tools(state);
                 return {
-                    content: [{ type: 'text', text: await (async () => { const msg = `Expanded "${target}". ${state.tool_names.length} tools now have full schemas.`; try { return await hashlineAnnotateAsync(msg); } catch { return msg; } })() }],
+                    content: [{ type: 'text', text: await tryHashline(`Expanded "${target}". ${state.tool_names.length} tools now have full schemas.`) }],
                 };
             },
         }));
