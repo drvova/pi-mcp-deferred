@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync, } from 'node:fs';
@@ -187,42 +186,6 @@ async function register_client(endpoints, redirect_uri) {
     });
     return { client_id: registration.client_id, client_secret: registration.client_secret };
 }
-let browser_opener;
-// Override how authorization URLs are opened (tests inject a fetch; a host app
-// can inject its own browser launcher). Falls back to the OS opener.
-export function set_browser_opener(fn) {
-    browser_opener = fn ?? undefined;
-}
-function open_browser(url) {
-    if (browser_opener) {
-        try {
-            void browser_opener(url);
-        }
-        catch {
-            // ignore opener errors; the URL is also printed
-        }
-        return;
-    }
-    const command = process.platform === 'darwin'
-        ? 'open'
-        : process.platform === 'win32'
-            ? 'rundll32.exe'
-            : 'xdg-open';
-    const args = process.platform === 'win32'
-        ? ['url.dll,FileProtocolHandler', url]
-        : [url];
-    try {
-        const child = spawn(command, args, {
-            stdio: 'ignore',
-            detached: true,
-        });
-        child.on('error', () => { });
-        child.unref();
-    }
-    catch {
-        // Fall back to the printed URL.
-    }
-}
 // Start the loopback callback listener. Resolves once it is listening, exposing
 // the assigned redirect_uri, a promise for the authorization code, and a closer.
 // Splitting listen from code-wait lets the caller register a client (which needs
@@ -287,12 +250,11 @@ function open_authorize(endpoints, client_id, redirect_uri, state, challenge, sc
     if (scopes)
         authorize_url.searchParams.set('scope', scopes);
     const href = authorize_url.toString();
-    const message = `Authenticate MCP server "${server_name}" — opening browser. If it does not open, visit:\n${href}`;
+    const message = `Authenticate MCP server "${server_name}" — visit:\n${href}`;
     if (ctx?.hasUI)
         ctx.ui.notify(message);
     else
         console.error(message);
-    open_browser(href);
 }
 async function exchange_code(endpoints, client_id, client_secret, code, redirect_uri, code_verifier) {
     const body = new URLSearchParams({
